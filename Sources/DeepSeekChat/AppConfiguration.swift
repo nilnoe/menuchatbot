@@ -13,6 +13,9 @@ enum AppConfiguration {
     /// 主面板窗口 frame autosave 名称。
     static let panelAutosaveName = "mainPanelV2"
 
+    /// 默认（官方）API 地址；启用自定义供应商后可覆盖。
+    static let defaultAPIBaseURL = "https://api.deepseek.com"
+
     /// 钥匙串中 API Key 的账户名。
     static let keychainAPIKeyAccount = "apiKey"
 
@@ -24,5 +27,8 @@ enum AppConfiguration {
         static let webSearch = "webSearch"
         static let systemPrompt = "systemPrompt"
         static let temperature = "temperature"
+        static let customProviderEnabled = "customProviderEnabled"
+        static let customBaseURL = "customBaseURL"
+        static let customModels = "customModels"
     }
 }

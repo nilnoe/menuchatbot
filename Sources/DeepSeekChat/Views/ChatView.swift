@@ -147,7 +147,7 @@ struct ChatView: View {
                             MessageView(
                                 state: sessionStore.messageState(for: message),
                                 isStreaming: message.id == streamingMessageID,
-                                modelLabel: ModelInfo.info(settings.model).shortName,
+                                modelLabel: settings.modelInfo(for: settings.model).shortName,
                                 onRetry: canRetry
                                     ? { controller.retryLastExchange(in: session.id) } : nil
                             )

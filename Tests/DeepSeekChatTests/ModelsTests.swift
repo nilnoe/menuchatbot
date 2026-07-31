@@ -50,12 +50,35 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(source.id, "https://x.com")
     }
 
-    func testModelInfoLookup() {
-        XCTAssertEqual(ModelInfo.info("deepseek-v4-flash").name, "DeepSeek V4 Flash")
-        XCTAssertTrue(ModelInfo.info("deepseek-v4-flash").supportsResponses)
-        XCTAssertFalse(ModelInfo.info("deepseek-v4-pro").supportsResponses)
-        // 未知模型回退到第一个
-        XCTAssertEqual(ModelInfo.info("unknown-model").id, "deepseek-v4-flash")
+    func testModelCatalogBuiltinLookup() {
+        let custom: [CustomModel] = []
+        XCTAssertEqual(
+            ModelCatalog.info("deepseek-v4-flash", custom: custom).name, "DeepSeek V4 Flash")
+        XCTAssertTrue(ModelCatalog.info("deepseek-v4-flash", custom: custom).supportsResponses)
+        XCTAssertFalse(ModelCatalog.info("deepseek-v4-pro", custom: custom).supportsResponses)
+        // 未知模型回退到第一个内置模型
+        XCTAssertEqual(ModelCatalog.info("unknown-model", custom: custom).id, "deepseek-v4-flash")
+    }
+
+    func testModelCatalogMergesCustomModels() {
+        let custom = [
+            CustomModel(id: "gpt-4o", name: "GPT-4o"),
+            CustomModel(id: "claude-sonnet", name: "Claude Sonnet"),
+        ]
+        let models = ModelCatalog.all(custom: custom)
+        XCTAssertEqual(models.count, 4)
+
+        let gpt = ModelCatalog.info("gpt-4o", custom: custom)
+        XCTAssertEqual(gpt.name, "GPT-4o")
+        XCTAssertTrue(gpt.isCustom)
+        XCTAssertFalse(gpt.supportsResponses, "自定义模型不支持 Responses API")
+
+        let claude = ModelCatalog.info("claude-sonnet", custom: custom)
+        XCTAssertEqual(claude.shortName, "Claude Sonnet", "自定义模型短标签用展示名")
+
+        // 自定义模型 ID 优先于内置模型（同名覆盖）
+        XCTAssertTrue(
+            ModelCatalog.info("deepseek-v4-flash", custom: custom).id == "deepseek-v4-flash")
     }
 
     func testEffortRawValuesAndLabels() {

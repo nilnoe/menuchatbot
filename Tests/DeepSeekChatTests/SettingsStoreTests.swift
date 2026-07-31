@@ -48,6 +48,100 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertEqual(reloaded.temperature, 0.7)
     }
 
+    func testCustomProviderSettingsRoundTrip() {
+        let store = makeStore()
+        store.customProviderEnabled = true
+        store.customBaseURL = "https://api.example.com/v1"
+        store.customModels = [
+            CustomModel(id: "gpt-4o", name: "GPT-4o"),
+            CustomModel(id: "claude-sonnet", name: "Claude Sonnet"),
+        ]
+
+        let reloaded = makeStore()
+        XCTAssertTrue(reloaded.customProviderEnabled)
+        XCTAssertEqual(reloaded.customBaseURL, "https://api.example.com/v1")
+        XCTAssertEqual(
+            reloaded.customModels,
+            [
+                CustomModel(id: "gpt-4o", name: "GPT-4o"),
+                CustomModel(id: "claude-sonnet", name: "Claude Sonnet"),
+            ]
+        )
+    }
+
+    func testCustomProviderDefaultsWhenNothingSaved() {
+        let store = makeStore()
+        XCTAssertFalse(store.customProviderEnabled)
+        XCTAssertEqual(store.customBaseURL, "")
+        XCTAssertTrue(store.customModels.isEmpty)
+    }
+
+    func testActiveBaseURLFallsBackToOfficial() {
+        let store = makeStore()
+        XCTAssertEqual(store.activeBaseURL, AppConfiguration.defaultAPIBaseURL)
+
+        // 启用但地址为空：仍回退官方地址
+        store.customProviderEnabled = true
+        XCTAssertEqual(store.activeBaseURL, AppConfiguration.defaultAPIBaseURL)
+
+        // 自定义地址生效（含首尾空白裁剪）
+        store.customBaseURL = "  https://api.example.com/v1  "
+        XCTAssertEqual(store.activeBaseURL, "https://api.example.com/v1")
+
+        // 关闭供应商后恢复官方地址
+        store.customProviderEnabled = false
+        XCTAssertEqual(store.activeBaseURL, AppConfiguration.defaultAPIBaseURL)
+    }
+
+    func testAvailableModelsMergeCustomWhenEnabled() {
+        let store = makeStore()
+        store.customModels = [CustomModel(id: "gpt-4o", name: "GPT-4o")]
+
+        // 未启用：只暴露内置模型
+        XCTAssertEqual(store.availableModels.map(\.id), ["deepseek-v4-flash", "deepseek-v4-pro"])
+
+        // 启用：合并自定义模型
+        store.customProviderEnabled = true
+        XCTAssertEqual(
+            store.availableModels.map(\.id),
+            ["deepseek-v4-flash", "deepseek-v4-pro", "gpt-4o"]
+        )
+        XCTAssertTrue(store.modelInfo(for: "gpt-4o").isCustom)
+        XCTAssertFalse(store.modelInfo(for: "gpt-4o").supportsResponses)
+    }
+
+    func testDisablingProviderResetsCustomModelSelection() {
+        let store = makeStore()
+        store.customProviderEnabled = true
+        store.customModels = [CustomModel(id: "gpt-4o", name: "GPT-4o")]
+        store.model = "gpt-4o"
+
+        store.customProviderEnabled = false
+        XCTAssertEqual(store.model, "deepseek-v4-flash", "关闭供应商后选中项应回退内置模型")
+    }
+
+    func testDeletingSelectedCustomModelResetsSelection() {
+        let store = makeStore()
+        store.customProviderEnabled = true
+        store.customModels = [CustomModel(id: "gpt-4o", name: "GPT-4o")]
+        store.model = "gpt-4o"
+
+        store.customModels = []
+        XCTAssertEqual(store.model, "deepseek-v4-flash", "删除选中的自定义模型后应回退内置模型")
+    }
+
+    func testReloadKeepsBuiltinSelectionWhenProviderOff() {
+        let store = makeStore()
+        store.model = "deepseek-v4-pro"
+        store.customProviderEnabled = true
+        store.customModels = [CustomModel(id: "gpt-4o", name: "GPT-4o")]
+        store.model = "gpt-4o"
+        store.customProviderEnabled = false
+
+        let reloaded = makeStore()
+        XCTAssertEqual(reloaded.model, "deepseek-v4-flash", "关闭后持久化的自定义选择不应复活")
+    }
+
     func testDefaultsWhenNothingSaved() {
         let store = makeStore()
         XCTAssertEqual(store.model, "deepseek-v4-flash")

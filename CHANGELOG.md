@@ -4,6 +4,23 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **自定义模型供应商（Beta 0.3 起点）**
+  - 设置页新增「自定义模型供应商」分区：可启用 OpenAI 兼容供应商、配置 API
+    Base URL（默认回退 `https://api.deepseek.com`）与自定义模型列表（模型 ID +
+    显示名，可增删）。
+  - 启用后请求自动发往自定义地址（`{base}/chat/completions`、`{base}/models`），
+    模型选择器合并展示自定义模型，消息气泡标签用配置的显示名。
+  - 自定义模型按 OpenAI 兼容 Chat Completions 处理：请求体只含标准字段，
+    自动省略 DeepSeek 专属参数（`thinking` / `reasoning_effort`），并禁用思考
+    模式与联网搜索（Responses API 为 DeepSeek 专属能力）。
+  - 关闭供应商或删除当前选中的自定义模型时，选中项自动回退内置模型，
+    避免拿自定义模型 ID 请求官方接口。
+  - 设置页「测试连接」按当前生效地址校验 Key（`GET /models`）。
+  - 取舍记录：见 `docs/decisions/0002-custom-model-provider.md`（沿用 ADR D2
+    结论，网络层不做全量协议化，仅参数化 baseURL + 能力标记）。
+
 ### 重构（refactor/architecture）
 
 按 [docs/REFACTORING.md](docs/REFACTORING.md) 完成分层架构重构，行为零变化：

@@ -38,8 +38,10 @@ final class ChatStreamControllerTests: XCTestCase {
         return ChatStreamController(
             sessionStore: store,
             settings: settings,
-            makeClient: { _ in
-                DeepSeekClient(apiKey: "test-key", session: self.makeDelayedStreamingURLSession())
+            makeClient: { _, baseURL in
+                DeepSeekClient(
+                    baseURL: baseURL, apiKey: "test-key",
+                    session: self.makeDelayedStreamingURLSession())
             }
         )
     }
@@ -103,6 +105,48 @@ final class ChatStreamControllerTests: XCTestCase {
         XCTAssertEqual(store.sessions.count, 1, "选中已有会话时不应新建")
         try await waitFor { controller.streamingSessionID == nil }
         XCTAssertEqual(store.session(id: session.id)?.messages.last?.content, "答")
+    }
+
+    // MARK: - 自定义供应商
+
+    func testCustomProviderRoutesToCustomBaseURLWithoutDeepSeekFields() async throws {
+        settings.customProviderEnabled = true
+        settings.customBaseURL = "https://api.example.com/v1"
+        settings.customModels = [CustomModel(id: "gpt-4o", name: "GPT-4o")]
+        settings.model = "gpt-4o"
+        settings.webSearch = true
+
+        let session = store.createSession(title: "自定义供应商")
+        let controller = makeController { [self] request in
+            XCTAssertEqual(
+                request.url?.absoluteString,
+                "https://api.example.com/v1/chat/completions",
+                "自定义供应商应请求配置的 base_url 且走 Chat Completions"
+            )
+            let body = try httpBody(of: request)
+            let json = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: body) as? [String: Any]
+            )
+            XCTAssertEqual(json["model"] as? String, "gpt-4o")
+            XCTAssertNil(json["thinking"])
+            XCTAssertNil(json["reasoning_effort"])
+            XCTAssertNil(json["tools"], "自定义模型不支持联网搜索，不应发 Responses 工具")
+            return (
+                httpResponse(request, status: 200),
+                [
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"自定义回复\"}}]}\n\n",
+                    "data: [DONE]\n\n",
+                ],
+                0.02
+            )
+        }
+
+        controller.beginAssistantReply(sessionID: session.id)
+        try await waitFor { controller.streamingSessionID == nil }
+
+        let last = try XCTUnwrap(store.session(id: session.id)?.messages.last)
+        XCTAssertEqual(last.content, "自定义回复")
+        XCTAssertFalse(last.isSearching, "自定义模型不触发搜索状态")
     }
 
     // MARK: - 重试

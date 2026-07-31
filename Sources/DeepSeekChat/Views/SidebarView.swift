@@ -32,7 +32,7 @@ struct SidebarView: View {
     }
 
     private var currentModel: ModelInfo {
-        ModelInfo.info(settings.model)
+        settings.modelInfo(for: settings.model)
     }
 
     var body: some View {
@@ -69,7 +69,7 @@ struct SidebarView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Picker("模型", selection: $settings.model) {
-                    ForEach(ModelInfo.all) { info in
+                    ForEach(settings.availableModels) { info in
                         Text(info.name).tag(info.id)
                     }
                 }
@@ -78,6 +78,7 @@ struct SidebarView: View {
 
                 Toggle("思考模式", isOn: $settings.thinking)
                     .controlSize(.small)
+                    .disabled(currentModel.isCustom)
 
                 if settings.thinking {
                     Picker("强度", selection: $settings.effort) {
@@ -87,6 +88,7 @@ struct SidebarView: View {
                     }
                     .pickerStyle(.segmented)
                     .controlSize(.mini)
+                    .disabled(currentModel.isCustom)
                 }
 
                 Toggle("联网搜索", isOn: webSearchBinding)
@@ -94,9 +96,13 @@ struct SidebarView: View {
                     .disabled(!currentModel.supportsResponses)
 
                 if !currentModel.supportsResponses {
-                    Text("仅 V4 Flash 支持，V4 Pro 预计 8 月初开放")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    Text(
+                        currentModel.isCustom
+                            ? "自定义模型暂不支持"
+                            : "仅 V4 Flash 支持，V4 Pro 预计 8 月初开放"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 }
 
                 Button(action: { showSettings = true }) {

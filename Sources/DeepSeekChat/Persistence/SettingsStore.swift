@@ -45,6 +45,38 @@ final class SettingsStore: ObservableObject {
             }
         }
     }
+    /// 是否启用自定义模型供应商（OpenAI 兼容 base_url）。
+    @Published var customProviderEnabled: Bool {
+        didSet {
+            defaults.set(
+                customProviderEnabled,
+                forKey: AppConfiguration.SettingsKey.customProviderEnabled
+            )
+            // 关闭供应商后，若当前选中的是自定义模型，回退到内置默认模型，
+            // 避免拿自定义模型 ID 请求官方接口。
+            if !customProviderEnabled, !ModelCatalog.builtin.contains(where: { $0.id == model }) {
+                model = "deepseek-v4-flash"
+            }
+        }
+    }
+    /// 自定义供应商 API 地址（如 `https://api.openai.com/v1`）；空值回退官方地址。
+    @Published var customBaseURL: String {
+        didSet {
+            defaults.set(customBaseURL, forKey: AppConfiguration.SettingsKey.customBaseURL)
+        }
+    }
+    /// 自定义模型列表（OpenAI 兼容模型 ID + 展示名）。
+    @Published var customModels: [CustomModel] {
+        didSet {
+            if let data = try? JSONEncoder().encode(customModels) {
+                defaults.set(data, forKey: AppConfiguration.SettingsKey.customModels)
+            }
+            // 删除当前选中的自定义模型时回退到内置默认模型。
+            if !availableModels.contains(where: { $0.id == model }) {
+                model = "deepseek-v4-flash"
+            }
+        }
+    }
 
     private let defaults: UserDefaults
     private let keychain: KeychainStoring
@@ -77,10 +109,42 @@ final class SettingsStore: ObservableObject {
             temperature = nil
         }
         apiKey = keychain.read(account: AppConfiguration.keychainAPIKeyAccount) ?? ""
+        customProviderEnabled =
+            defaults.bool(forKey: AppConfiguration.SettingsKey.customProviderEnabled)
+        customBaseURL = defaults.string(forKey: AppConfiguration.SettingsKey.customBaseURL) ?? ""
+        if let data = defaults.data(forKey: AppConfiguration.SettingsKey.customModels),
+            let models = try? JSONDecoder().decode([CustomModel].self, from: data)
+        {
+            customModels = models
+        } else {
+            customModels = []
+        }
+        // 历史数据可能选中了已不存在的自定义模型，初始化后兜底一次。
+        if !availableModels.contains(where: { $0.id == model }) {
+            model = "deepseek-v4-flash"
+        }
     }
 
     var keyConfigured: Bool {
         !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// 当前生效的 API 地址：启用自定义供应商且填写了地址时用自定义地址，
+    /// 否则回退 DeepSeek 官方地址。
+    var activeBaseURL: String {
+        guard customProviderEnabled else { return AppConfiguration.defaultAPIBaseURL }
+        let trimmed = customBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? AppConfiguration.defaultAPIBaseURL : trimmed
+    }
+
+    /// 可选模型列表：启用自定义供应商时合并自定义模型。
+    var availableModels: [ModelInfo] {
+        ModelCatalog.all(custom: customProviderEnabled ? customModels : [])
+    }
+
+    /// 按 ID 解析模型信息（含自定义模型）。
+    func modelInfo(for id: String) -> ModelInfo {
+        ModelCatalog.info(id, custom: customProviderEnabled ? customModels : [])
     }
 
     private func persistKey(value: String) {

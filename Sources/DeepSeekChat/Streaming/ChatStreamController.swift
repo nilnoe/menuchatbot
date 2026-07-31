@@ -18,13 +18,14 @@ final class ChatStreamController: ObservableObject {
     private var streamTask: Task<Void, Never>?
     private let sessionStore: SessionStoring
     private let settings: SettingsStore
-    private let makeClient: (String) -> DeepSeekClient
+    /// 构造网络客户端：参数依次为 API Key、API 地址（自定义供应商）。
+    private let makeClient: (String, String) -> DeepSeekClient
 
     init(
         sessionStore: SessionStoring,
         settings: SettingsStore,
-        makeClient: @escaping @MainActor (String) -> DeepSeekClient = {
-            DeepSeekClient(apiKey: $0)
+        makeClient: @escaping @MainActor (String, String) -> DeepSeekClient = {
+            DeepSeekClient(baseURL: $1, apiKey: $0)
         }
     ) {
         self.sessionStore = sessionStore
@@ -64,10 +65,15 @@ final class ChatStreamController: ObservableObject {
 
     /// 追加一条 assistant 占位消息并启动流式回复（发送与重试共用）。
     func beginAssistantReply(sessionID: UUID) {
+        // 只有支持 Responses API 的模型才可能触发搜索状态；
+        // 自定义模型即使开着联网搜索开关，也不会进入“搜索中”显示。
+        let canSearch =
+            settings.webSearch
+            && settings.modelInfo(for: settings.model).supportsResponses
         let assistantMessage = ChatMessage(
             role: .assistant,
             content: "",
-            isSearching: settings.webSearch
+            isSearching: canSearch
         )
         sessionStore.appendMessage(sessionID: sessionID, assistantMessage)
         let assistantState = sessionStore.messageState(for: assistantMessage)
@@ -141,9 +147,10 @@ final class ChatStreamController: ObservableObject {
             sessionStore.commitMessage(state, sessionID: sessionID)
         }
 
-        let client = makeClient(settings.apiKey)
+        let client = makeClient(settings.apiKey, settings.activeBaseURL)
         let model = settings.model
-        let canSearch = settings.webSearch && ModelInfo.info(model).supportsResponses
+        let modelInfo = settings.modelInfo(for: model)
+        let canSearch = settings.webSearch && modelInfo.supportsResponses
 
         let callbacks = StreamCallbacks(
             onDelta: { chunk in
@@ -186,6 +193,7 @@ final class ChatStreamController: ObservableObject {
                     effort: settings.effort,
                     systemPrompt: settings.systemPrompt,
                     temperature: settings.temperature,
+                    isCustomProvider: modelInfo.isCustom,
                     callbacks: callbacks
                 )
             }

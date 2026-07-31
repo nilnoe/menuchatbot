@@ -70,9 +70,10 @@ Sources/DeepSeekChat/
 ├─ App/          入口（@main）、AppDelegate 装配、PanelController、
 │                StatusItemController、MainMenuBuilder
 ├─ Domain/       领域模型：ChatMessage / ChatSession / Role / Source、
-│                导入导出 DTO、Effort 枚举
+│                导入导出 DTO、Effort 枚举、CustomModel（自定义供应商模型）
 ├─ Services/     网络层（DeepSeekClient / SSEParser / APIMessage）、
-│                ModelCatalog、MarkdownCache、ConnectionChecker
+│                ModelCatalog（内置 + 自定义模型目录）、MarkdownCache、
+│                ConnectionChecker
 ├─ Persistence/  SessionStore（仓储）、GRDB 记录、SettingsStore、
 │                KeychainStore、旧数据迁移
 ├─ Streaming/    MessageState（可观察流式状态 + 增量缓冲）、

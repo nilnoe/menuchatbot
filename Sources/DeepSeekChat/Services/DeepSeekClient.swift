@@ -33,7 +33,7 @@ struct DeepSeekClient {
     private let session: URLSession
 
     init(
-        baseURL: String = "https://api.deepseek.com",
+        baseURL: String = AppConfiguration.defaultAPIBaseURL,
         apiKey: String,
         session: URLSession = .shared
     ) {
@@ -77,6 +77,7 @@ struct DeepSeekClient {
         effort: Effort,
         systemPrompt: String = "",
         temperature: Double? = nil,
+        isCustomProvider: Bool = false,
         callbacks: StreamCallbacks
     ) async throws {
         var requestMessages = messages
@@ -87,10 +88,14 @@ struct DeepSeekClient {
             "model": model,
             "messages": requestMessages.map { ["role": $0.role, "content": $0.content] },
             "stream": true,
-            "thinking": ["type": thinking ? "enabled" : "disabled"],
         ]
-        if thinking {
-            body["reasoning_effort"] = effort.rawValue
+        // 思考开关 / 推理强度是 DeepSeek 专属字段；OpenAI 兼容供应商
+        // 不识别这两个参数（会直接报错），自定义模型只发标准字段。
+        if !isCustomProvider {
+            body["thinking"] = ["type": thinking ? "enabled" : "disabled"]
+            if thinking {
+                body["reasoning_effort"] = effort.rawValue
+            }
         }
         if let temperature {
             body["temperature"] = temperature

@@ -30,6 +30,8 @@ MenuChatBot 是一个常驻在 macOS 菜单栏的 AI 聊天应用：
 | Markdown 渲染 | 标题、列表、代码块、链接等常见格式 |
 | 代码高亮 | 代码块支持 185+ 语言语法高亮（highlight.js），语言标签 + 一键复制 |
 | 对话设置 | 自定义 System Prompt、temperature（0~2）随机性调节、API Key 测试连接 |
+| 自定义模型供应商 | 设置页接入任意 OpenAI 兼容 API（自定义 base_url 与模型列表），
+  自定义模型自动省略 DeepSeek 专属参数 |
 | API Key 安全存储 | 存于 macOS 钥匙串（Keychain），不上传、不写入代码 |
 | 窗口体验 | 统一系统表面风格；默认铺满屏幕约 93% 居中，可缩放、可拖动，记住上次位置与大小 |
 

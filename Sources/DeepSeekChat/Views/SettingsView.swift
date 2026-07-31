@@ -17,7 +17,7 @@ struct SettingsView: View {
     }
 
     private var currentModel: ModelInfo {
-        ModelInfo.info(settings.model)
+        settings.modelInfo(for: settings.model)
     }
 
     var body: some View {
@@ -37,6 +37,7 @@ struct SettingsView: View {
                 Form {
                     apiSection
                     modelSection
+                    providerSection
                     conversationSection
                     dataSection
                 }
@@ -108,7 +109,7 @@ struct SettingsView: View {
 
             keyCheckStatus
 
-            Text("Key 保存在 macOS 钥匙串中，直接请求 DeepSeek API")
+            Text("Key 保存在 macOS 钥匙串中，请求直接发往所选供应商 API")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -117,11 +118,12 @@ struct SettingsView: View {
     private var modelSection: some View {
         Section("模型") {
             Picker("模型", selection: $settings.model) {
-                ForEach(ModelInfo.all) { info in
+                ForEach(settings.availableModels) { info in
                     Text(info.name).tag(info.id)
                 }
             }
             Toggle("思考模式", isOn: $settings.thinking)
+                .disabled(currentModel.isCustom)
             if settings.thinking {
                 Picker("思考强度", selection: $settings.effort) {
                     ForEach(Effort.allCases) { effort in
@@ -129,14 +131,65 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .disabled(currentModel.isCustom)
+            }
+            if currentModel.isCustom {
+                Text("自定义模型暂不支持思考模式与联网搜索")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Toggle("联网搜索", isOn: webSearchBinding)
                 .disabled(!currentModel.supportsResponses)
             if !currentModel.supportsResponses {
-                Text("Responses API 暂未支持 V4 Pro，预计 2026 年 8 月初开放")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(
+                    currentModel.isCustom
+                        ? "自定义模型走 OpenAI 兼容 Chat Completions，不支持 Responses API"
+                        : "Responses API 暂未支持 V4 Pro，预计 2026 年 8 月初开放"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private var providerSection: some View {
+        Section("自定义模型供应商") {
+            Toggle("启用自定义供应商", isOn: $settings.customProviderEnabled)
+
+            if settings.customProviderEnabled {
+                TextField("API Base URL", text: $settings.customBaseURL)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+
+                ForEach(settings.customModels.indices, id: \.self) { index in
+                    HStack(spacing: 8) {
+                        TextField("模型 ID（如 gpt-4o）", text: $settings.customModels[index].id)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("显示名称", text: $settings.customModels[index].name)
+                            .textFieldStyle(.roundedBorder)
+                        Button {
+                            settings.customModels.remove(at: index)
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.red)
+                    }
+                }
+
+                Button {
+                    settings.customModels.append(CustomModel(id: "", name: ""))
+                } label: {
+                    Label("添加模型", systemImage: "plus.circle")
+                }
+                .buttonStyle(.borderless)
+            }
+
+            Text(
+                "自定义供应商走 OpenAI 兼容 Chat Completions 接口（{base}/chat/completions）；思考模式与联网搜索为 DeepSeek 专属能力，自定义模型暂不支持"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
     }
 
@@ -230,7 +283,10 @@ struct SettingsView: View {
         }
         keyCheckState = .checking
         Task { @MainActor in
-            let result = await ConnectionChecker().check(apiKey: settings.apiKey)
+            let result = await ConnectionChecker().check(
+                apiKey: settings.apiKey,
+                baseURL: settings.activeBaseURL
+            )
             switch result {
             case .success(let modelCount):
                 keyCheckState = .success(modelCount: modelCount)

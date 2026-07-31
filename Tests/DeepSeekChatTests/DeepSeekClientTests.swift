@@ -188,6 +188,68 @@ final class DeepSeekClientTests: XCTestCase {
     }
 
     @MainActor
+    func testCustomProviderChatCompletionsOmitsDeepSeekFields() async throws {
+        MockURLProtocol.handler = { [self] request in
+            XCTAssertEqual(
+                request.url?.absoluteString,
+                "https://api.example.com/v1/chat/completions",
+                "自定义供应商应使用配置的 base_url"
+            )
+            let body = try httpBody(of: request)
+            let json = try XCTUnwrap(
+                JSONSerialization.jsonObject(with: body) as? [String: Any]
+            )
+            XCTAssertEqual(json["model"] as? String, "gpt-4o")
+            XCTAssertNil(json["thinking"], "OpenAI 兼容供应商不应发送 DeepSeek 专属 thinking")
+            XCTAssertNil(json["reasoning_effort"], "OpenAI 兼容供应商不应发送 reasoning_effort")
+            XCTAssertEqual(json["temperature"] as? Double, 0.7)
+            let messages = json["messages"] as? [[String: Any]]
+            XCTAssertEqual(messages?.count, 2)
+            XCTAssertEqual(messages?.first?["role"] as? String, "system")
+            return (httpResponse(request, status: 200), Data("data: [DONE]\n\n".utf8))
+        }
+
+        let recorder = CallbackRecorder()
+        let client = DeepSeekClient(
+            baseURL: "https://api.example.com/v1",
+            apiKey: "sk-test",
+            session: makeMockURLSession()
+        )
+        try await client.chatCompletions(
+            model: "gpt-4o",
+            messages: [APIMessage(role: "user", content: "hi")],
+            thinking: true,
+            effort: .high,
+            systemPrompt: "你是一位助手",
+            temperature: 0.7,
+            isCustomProvider: true,
+            callbacks: recorder.callbacks
+        )
+        XCTAssertEqual(recorder.doneCount, 1)
+    }
+
+    @MainActor
+    func testValidateAPIKeyUsesCustomBaseURL() async throws {
+        MockURLProtocol.handler = { [self] request in
+            XCTAssertEqual(
+                request.url?.absoluteString,
+                "https://api.example.com/v1/models",
+                "Key 校验应打到自定义供应商的 /models 接口"
+            )
+            let body = Data(#"{"data":[{"id":"gpt-4o"}]}"#.utf8)
+            return (httpResponse(request, status: 200), body)
+        }
+
+        let client = DeepSeekClient(
+            baseURL: "https://api.example.com/v1",
+            apiKey: "sk-test",
+            session: makeMockURLSession()
+        )
+        let models = try await client.validateAPIKey()
+        XCTAssertEqual(models, ["gpt-4o"])
+    }
+
+    @MainActor
     func testResponsesRequestWithWebSearch() async throws {
         let sse = """
             data: {"type":"response.web_search_call.in_progress"}
