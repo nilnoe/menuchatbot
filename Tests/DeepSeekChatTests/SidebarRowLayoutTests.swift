@@ -126,8 +126,8 @@ final class SidebarRowLayoutTests: XCTestCase {
         XCTAssertGreaterThan(result.textMaxX, result.actionsMinX)
     }
 
-    /// 真实 SidebarSessionRow（hover + tokens）挂窗渲染冒烟。
-    func testSidebarSessionRowRendersHoveredWithTokens() {
+    /// 真实 SidebarSessionRow（选中常显快捷操作 + tokens）挂窗渲染冒烟。
+    func testSidebarSessionRowRendersSelectedWithTokens() {
         let session = ChatSession(
             id: UUID(),
             title: "带用量会话",
@@ -148,30 +148,67 @@ final class SidebarRowLayoutTests: XCTestCase {
         )
         let row = SidebarSessionRow(
             session: session,
-            isSelected: false,
-            isHovered: true,
+            isSelected: true,
             onSelect: {},
             onTogglePin: {},
             onRename: {},
+            onRenameConfirm: {},
+            onRenameCancel: {},
             onDelete: {}
         )
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 176, height: 90),
+            contentRect: NSRect(x: 0, y: 0, width: DesignTokens.Sidebar.width, height: 90),
             styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
         let hosting = NSHostingView(rootView: AnyView(row))
-        hosting.frame = NSRect(x: 0, y: 0, width: 176, height: 90)
+        hosting.frame = NSRect(x: 0, y: 0, width: DesignTokens.Sidebar.width, height: 90)
         window.contentView = hosting
         hosting.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         XCTAssertNotNil(window.contentView)
     }
 
-    // MARK: - 快捷操作可见性规则（选中行常显 / hover 显示）
+    /// 行内重命名状态渲染冒烟：标题变为输入框、右侧为确定 / 取消。
+    func testSidebarSessionRowRendersRenaming() {
+        let session = ChatSession(
+            id: UUID(),
+            title: "旧标题",
+            messages: [],
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        var draft = "新标题"
+        let row = SidebarSessionRow(
+            session: session,
+            isSelected: true,
+            isRenaming: true,
+            renameDraft: Binding(get: { draft }, set: { draft = $0 }),
+            onSelect: {},
+            onTogglePin: {},
+            onRename: {},
+            onRenameConfirm: {},
+            onRenameCancel: {},
+            onDelete: {}
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: DesignTokens.Sidebar.width, height: 90),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let hosting = NSHostingView(rootView: AnyView(row))
+        hosting.frame = NSRect(x: 0, y: 0, width: DesignTokens.Sidebar.width, height: 90)
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertNotNil(window.contentView)
+    }
 
-    private func makeRow(isSelected: Bool, isHovered: Bool) -> SidebarSessionRow {
+    // MARK: - 快捷操作可见性规则（选中行常显 / hover 由行自身管理）
+
+    private func makeRow(isSelected: Bool) -> SidebarSessionRow {
         let session = ChatSession(
             id: UUID(),
             title: "测试会话",
@@ -183,24 +220,21 @@ final class SidebarRowLayoutTests: XCTestCase {
         return SidebarSessionRow(
             session: session,
             isSelected: isSelected,
-            isHovered: isHovered,
             onSelect: {},
             onTogglePin: {},
             onRename: {},
+            onRenameConfirm: {},
+            onRenameCancel: {},
             onDelete: {}
         )
     }
 
-    func testQuickActionsShownWhenHovered() {
-        XCTAssertTrue(makeRow(isSelected: false, isHovered: true).showsQuickActions)
-    }
-
     /// 选中行无需 hover 也显示快捷按钮：保证置顶 / 重命名 / 删除可发现。
     func testQuickActionsShownWhenSelectedWithoutHover() {
-        XCTAssertTrue(makeRow(isSelected: true, isHovered: false).showsQuickActions)
+        XCTAssertTrue(makeRow(isSelected: true).showsQuickActions)
     }
 
     func testQuickActionsHiddenForUnselectedUnhoveredRow() {
-        XCTAssertFalse(makeRow(isSelected: false, isHovered: false).showsQuickActions)
+        XCTAssertFalse(makeRow(isSelected: false).showsQuickActions)
     }
 }

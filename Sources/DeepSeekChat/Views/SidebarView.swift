@@ -7,10 +7,9 @@ struct SidebarView: View {
     @Binding var selectedID: UUID?
     @Binding var showSettings: Bool
 
-    @State private var showRenameAlert = false
-    @State private var renameTargetID: UUID?
+    /// 正在行内重命名的会话 ID（nil = 无）。
+    @State private var renamingID: UUID?
     @State private var renameDraft = ""
-    @State private var hoveredSessionID: UUID?
 
     private var sortedSessions: [ChatSession] {
         sessionStore.sessions.sorted { $0.updatedAt > $1.updatedAt }
@@ -120,15 +119,6 @@ struct SidebarView: View {
             }
             .padding(10)
         }
-        .alert("重命名会话", isPresented: $showRenameAlert) {
-            TextField("标题", text: $renameDraft)
-            Button("确定") {
-                if let id = renameTargetID {
-                    sessionStore.renameSession(id: id, title: renameDraft)
-                }
-            }
-            Button("取消", role: .cancel) {}
-        }
     }
 
     private var webSearchBinding: Binding<Bool> {
@@ -147,30 +137,27 @@ struct SidebarView: View {
         SidebarSessionRow(
             session: session,
             isSelected: selectedID == session.id,
-            isHovered: hoveredSessionID == session.id,
+            isRenaming: renamingID == session.id,
+            renameDraft: $renameDraft,
             onSelect: { selectedID = session.id },
             onTogglePin: {
                 sessionStore.setPinned(id: session.id, pinned: !session.isPinned)
             },
             onRename: {
-                renameTargetID = session.id
+                renamingID = session.id
                 renameDraft = session.title
-                showRenameAlert = true
             },
+            onRenameConfirm: confirmRename,
+            onRenameCancel: { renamingID = nil },
             onDelete: { deleteSession(session) }
         )
-        .onHover { hovering in
-            // 即时切换（不做淡入动画）：快捷按钮「点了就有」，避免感知延迟。
-            hoveredSessionID = hovering ? session.id : nil
-        }
         .contextMenu {
             Button(session.isPinned ? "取消置顶" : "置顶") {
                 sessionStore.setPinned(id: session.id, pinned: !session.isPinned)
             }
             Button("重命名") {
-                renameTargetID = session.id
+                renamingID = session.id
                 renameDraft = session.title
-                showRenameAlert = true
             }
             Button("导出为 JSON…") {
                 SessionFileTransfer.exportSession(session, from: sessionStore)
@@ -179,6 +166,12 @@ struct SidebarView: View {
                 deleteSession(session)
             }
         }
+    }
+
+    private func confirmRename() {
+        guard let id = renamingID else { return }
+        sessionStore.renameSession(id: id, title: renameDraft)
+        renamingID = nil
     }
 
     private func deleteSession(_ session: ChatSession) {
@@ -195,18 +188,29 @@ struct SidebarView: View {
     }
 }
 
-/// 侧栏会话行：标题 / 信息（日期 · 条数、tokens 独立子行）与 hover 快捷操作。
+/// 侧栏会话行：标题 / 信息（日期 · 条数、tokens 独立子行）与快捷操作。
 ///
 /// 独立成结构体（而非 SidebarView 私有函数）是为了让布局回归测试可以直接
-/// 以「强制 hover」状态渲染，验证文字与快捷按钮不重叠。
+/// 渲染，验证文字与快捷按钮不重叠；行自身维护 hover 状态。
 struct SidebarSessionRow: View {
     let session: ChatSession
     let isSelected: Bool
-    let isHovered: Bool
+    /// 是否处于行内重命名状态（标题变成输入框）。
+    var isRenaming: Bool = false
+    /// 行内重命名草稿。
+    var renameDraft: Binding<String> = .constant("")
     let onSelect: () -> Void
     let onTogglePin: () -> Void
     let onRename: () -> Void
+    let onRenameConfirm: () -> Void
+    let onRenameCancel: () -> Void
     let onDelete: () -> Void
+
+    /// 行自身维护 hover 状态，不共享 SidebarView 的 hoveredSessionID：
+    /// 鼠标跨行移动时 leave/enter 顺序不定，共享 ID 会被后到的 nil 覆盖，
+    /// 导致按钮闪现消失、点击落空（「取消置顶有时不起作用」）。
+    @State private var isHovered = false
+    @FocusState private var renameFocused: Bool
 
     /// 选中行常显快捷按钮（无需悬停即可置顶 / 重命名 / 删除），
     /// 其他行 hover 时显示——保证操作可发现、可点击。
@@ -217,58 +221,29 @@ struct SidebarSessionRow: View {
 
     var body: some View {
         ZStack(alignment: .trailing) {
-            Button(action: onSelect) {
-                HStack(spacing: 8) {
-                    Image(systemName: icon)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                        .frame(width: 16)
+            rowContainer
 
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(session.title.isEmpty ? "新对话" : session.title)
-                            .font(.callout)
-                            .lineLimit(1)
-                        HStack(spacing: 6) {
-                            Text(relativeDate)
-                            Text("\(session.messages.count) 条")
-                        }
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        // tokens 独立子行：不再与日期 / 条数挤在同一行，
-                        // 也避免 hover 时被快捷按钮截断。
-                        if let totalTokens = totalTokens {
-                            HStack(spacing: 4) {
-                                Image(systemName: "chart.bar")
-                                    .font(.system(size: 9))
-                                Text("\(TokenUsage.compact(totalTokens)) tokens")
-                            }
-                            .font(.system(size: DesignTokens.FontSize.caption - 1))
-                            .foregroundStyle(.tertiary)
-                            .padding(.top, 1)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    // hover 时预留与快捷按钮组实宽一致的位，避免文字被覆盖。
-                    // （0.2.2 曾用 44pt 估算，小于三按钮实际宽度导致重叠。）
-                    .padding(
-                        .trailing,
-                        showsQuickActions
-                            ? DesignTokens.Sidebar.quickActionsReservedWidth : 0
-                    )
-                }
-                .padding(8)
-                .background(
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(rowBackground)
-                )
-            }
-            .buttonStyle(.plain)
-
-            if showsQuickActions {
+            if isRenaming {
+                // 重命名期间用「确定 / 取消」替代快捷操作。
                 HStack(spacing: DesignTokens.Sidebar.quickActionSpacing) {
                     quickActionButton(
-                        systemImage: session.isPinned ? "pin.slash" : "pin",
+                        systemImage: "checkmark",
+                        help: "确定",
+                        action: onRenameConfirm
+                    )
+                    quickActionButton(
+                        systemImage: "xmark",
+                        help: "取消",
+                        action: onRenameCancel
+                    )
+                }
+                .padding(.trailing, DesignTokens.Sidebar.quickActionsTrailingPadding)
+            } else if showsQuickActions {
+                HStack(spacing: DesignTokens.Sidebar.quickActionSpacing) {
+                    quickActionButton(
+                        systemImage: session.isPinned ? "pin.fill" : "pin",
                         help: session.isPinned ? "取消置顶" : "置顶",
+                        foreground: session.isPinned ? Color.accentColor : Color.secondary,
                         action: onTogglePin
                     )
                     quickActionButton(
@@ -285,6 +260,87 @@ struct SidebarSessionRow: View {
                 }
                 .padding(.trailing, DesignTokens.Sidebar.quickActionsTrailingPadding)
             }
+        }
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .onChange(of: isRenaming) { _, renaming in
+            if renaming {
+                renameFocused = true
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var rowContainer: some View {
+        if isRenaming {
+            // 重命名时不用 Button 包裹：TextField 需要接收点击，不能被外层按钮拦截。
+            rowBody
+        } else {
+            Button(action: onSelect) {
+                rowBody
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var rowBody: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                .frame(width: 16)
+
+            VStack(alignment: .leading, spacing: 3) {
+                titleSlot
+                HStack(spacing: 6) {
+                    Text(relativeDate)
+                    Text("\(session.messages.count) 条")
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                // tokens 独立子行：不再与日期 / 条数挤在同一行，
+                // 也避免 hover 时被快捷按钮截断。
+                if let totalTokens = totalTokens {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chart.bar")
+                            .font(.system(size: 9))
+                        Text("\(TokenUsage.compact(totalTokens)) tokens")
+                    }
+                    .font(.system(size: DesignTokens.FontSize.caption - 1))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // hover / 重命名时预留与右侧按钮组实宽一致的位，避免文字被覆盖。
+            // （0.2.2 曾用 44pt 估算，小于三按钮实际宽度导致重叠。）
+            .padding(
+                .trailing,
+                isRenaming || showsQuickActions
+                    ? DesignTokens.Sidebar.quickActionsReservedWidth : 0
+            )
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 7)
+                .fill(rowBackground)
+        )
+    }
+
+    @ViewBuilder
+    private var titleSlot: some View {
+        if isRenaming {
+            TextField("会话标题", text: renameDraft)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .focused($renameFocused)
+                .onSubmit { onRenameConfirm() }
+                .onExitCommand { onRenameCancel() }
+        } else {
+            Text(session.title.isEmpty ? "新对话" : session.title)
+                .font(.callout)
+                .lineLimit(1)
         }
     }
 
@@ -323,6 +379,7 @@ struct SidebarSessionRow: View {
     private func quickActionButton(
         systemImage: String,
         help: String,
+        foreground: Color = .secondary,
         destructive: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
@@ -335,7 +392,7 @@ struct SidebarSessionRow: View {
                 )
         }
         .buttonStyle(.plain)
-        .foregroundStyle(destructive ? Color.red : Color.secondary)
+        .foregroundStyle(destructive ? Color.red : foreground)
         .help(help)
     }
 }
