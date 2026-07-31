@@ -52,6 +52,54 @@ struct ChatSession: Codable, Equatable, Identifiable {
     var messages: [ChatMessage]
     var createdAt: Date
     var updatedAt: Date
+    /// 会话是否置顶（侧栏置顶分组）。
+    var isPinned: Bool = false
+
+    init(
+        id: UUID,
+        title: String,
+        messages: [ChatMessage],
+        createdAt: Date,
+        updatedAt: Date,
+        isPinned: Bool = false
+    ) {
+        self.id = id
+        self.title = title
+        self.messages = messages
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.isPinned = isPinned
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case messages
+        case createdAt
+        case updatedAt
+        case isPinned
+    }
+
+    /// 旧备份（无 isPinned 字段）解码为未置顶，保证导入兼容。
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        messages = try container.decode([ChatMessage].self, forKey: .messages)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        updatedAt = try container.decode(Date.self, forKey: .updatedAt)
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(messages, forKey: .messages)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(updatedAt, forKey: .updatedAt)
+        try container.encode(isPinned, forKey: .isPinned)
+    }
 }
 
 /// 会话导入 / 导出的 JSON 包装格式。

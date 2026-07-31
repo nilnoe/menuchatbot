@@ -11,6 +11,7 @@ struct SessionRecord: Codable, FetchableRecord, MutablePersistableRecord, TableR
     var title: String
     var createdAt: Date
     var updatedAt: Date
+    var isPinned: Bool
 }
 
 /// `message` 表记录。sources 以 JSON 文本存于单列，避免引入嵌套表。

@@ -34,6 +34,8 @@ final class SidebarViewRenderTests: XCTestCase {
                 sources: [Source(title: "来源", url: "https://example.com")]
             )
         )
+        // 置顶会话应照常渲染在置顶分组中
+        sessionStore.setPinned(id: plain.id, pinned: true)
 
         var selectedID: UUID? = plain.id
         var showSettings = false

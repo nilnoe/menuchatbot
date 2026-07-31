@@ -76,6 +76,66 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertNil(reloaded.session(id: session.id)?.messages.last?.usage)
     }
 
+    // MARK: - 置顶
+
+    func testSetPinnedPersistsAcrossReload() {
+        let store = makeStore()
+        let session = store.createSession(title: "置顶会话")
+        store.setPinned(id: session.id, pinned: true)
+
+        let reloaded = makeStore()
+        XCTAssertTrue(reloaded.session(id: session.id)?.isPinned ?? false)
+
+        // 取消置顶后跨实例保持未置顶
+        reloaded.setPinned(id: session.id, pinned: false)
+        let final = makeStore()
+        XCTAssertFalse(final.session(id: session.id)?.isPinned ?? true)
+    }
+
+    func testSetPinnedDoesNotTouchUpdatedAt() {
+        let store = makeStore()
+        let session = store.createSession(title: "置顶时间")
+        let before = store.session(id: session.id)?.updatedAt
+        store.setPinned(id: session.id, pinned: true)
+        XCTAssertEqual(store.session(id: session.id)?.updatedAt, before)
+    }
+
+    func testLegacyDatabaseWithoutPinnedColumnUpgrades() throws {
+        // 旧版 schema：session 表无 isPinned、message 表无 usageJSON。
+        let dbURL = tempDir.appendingPathComponent("sessions.sqlite")
+        var legacy = DatabaseMigrator()
+        legacy.registerMigration("v1") { db in
+            try db.create(table: "session") { t in
+                t.column("id", .text).primaryKey()
+                t.column("title", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+            try db.create(table: "message") { t in
+                t.column("id", .text).primaryKey()
+                t.column("sessionID", .text).notNull().references("session", onDelete: .cascade)
+                t.column("role", .text).notNull()
+                t.column("content", .text).notNull()
+                t.column("reasoning", .text)
+                t.column("sourcesJSON", .text)
+                t.column("isSearching", .boolean).notNull()
+                t.column("isError", .boolean).notNull()
+                t.column("createdAt", .datetime).notNull()
+                t.column("position", .integer).notNull()
+            }
+            try db.create(indexOn: "message", columns: ["sessionID", "position"])
+        }
+        let queue = try DatabaseQueue(path: dbURL.path)
+        try legacy.migrate(queue)
+
+        let store = makeStore()
+        let session = store.createSession(title: "旧库升级")
+        store.setPinned(id: session.id, pinned: true)
+
+        let reloaded = makeStore()
+        XCTAssertTrue(reloaded.session(id: session.id)?.isPinned ?? false)
+    }
+
     func testLegacyDatabaseWithoutUsageColumnUpgrades() throws {
         // 用旧版 v1 schema（无 usageJSON 列）预建库，再让 SessionStore 跑迁移。
         let dbURL = tempDir.appendingPathComponent("sessions.sqlite")

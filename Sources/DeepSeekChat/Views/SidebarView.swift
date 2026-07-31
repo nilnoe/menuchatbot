@@ -16,15 +16,18 @@ struct SidebarView: View {
         sessionStore.sessions.sorted { $0.updatedAt > $1.updatedAt }
     }
 
-    /// 按「今天 / 昨天 / 更早」分组，保持组内按 updatedAt 倒序。
+    /// 分组：置顶组在最前，其余按「今天 / 昨天 / 更早」，组内按 updatedAt 倒序。
     private var groupedSessions: [SessionGroup] {
-        let buckets = Dictionary(grouping: sortedSessions) { session -> String in
+        let pinned = sortedSessions.filter(\.isPinned)
+        let unpinned = sortedSessions.filter { !$0.isPinned }
+        let buckets = Dictionary(grouping: unpinned) { session -> String in
             let calendar = Calendar.current
             if calendar.isDateInToday(session.updatedAt) { return "今天" }
             if calendar.isDateInYesterday(session.updatedAt) { return "昨天" }
             return "更早"
         }
         return [
+            SessionGroup(title: "置顶", sessions: pinned),
             SessionGroup(title: "今天", sessions: buckets["今天"] ?? []),
             SessionGroup(title: "昨天", sessions: buckets["昨天"] ?? []),
             SessionGroup(title: "更早", sessions: buckets["更早"] ?? []),
@@ -182,6 +185,12 @@ struct SidebarView: View {
 
             if isHovered {
                 HStack(spacing: 2) {
+                    quickActionButton(
+                        systemImage: session.isPinned ? "pin.slash" : "pin",
+                        help: session.isPinned ? "取消置顶" : "置顶"
+                    ) {
+                        sessionStore.setPinned(id: session.id, pinned: !session.isPinned)
+                    }
                     quickActionButton(systemImage: "pencil", help: "重命名") {
                         renameTargetID = session.id
                         renameDraft = session.title
@@ -201,6 +210,9 @@ struct SidebarView: View {
             }
         }
         .contextMenu {
+            Button(session.isPinned ? "取消置顶" : "置顶") {
+                sessionStore.setPinned(id: session.id, pinned: !session.isPinned)
+            }
             Button("重命名") {
                 renameTargetID = session.id
                 renameDraft = session.title

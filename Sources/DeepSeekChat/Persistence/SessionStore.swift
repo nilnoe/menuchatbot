@@ -56,6 +56,7 @@ final class SessionStore: ObservableObject {
                 t.column("title", .text).notNull()
                 t.column("createdAt", .datetime).notNull()
                 t.column("updatedAt", .datetime).notNull()
+                t.column("isPinned", .boolean).notNull().defaults(to: false)
             }
             try db.create(table: "message") { t in
                 t.column("id", .text).primaryKey()
@@ -80,6 +81,14 @@ final class SessionStore: ObservableObject {
                 }
             }
         }
+        // v3：session 表补充 isPinned 列（置顶分组）。
+        migrator.registerMigration("v3") { db in
+            if try !db.columns(in: "session").contains(where: { $0.name == "isPinned" }) {
+                try db.alter(table: "session") { t in
+                    t.add(column: "isPinned", .boolean).notNull().defaults(to: false)
+                }
+            }
+        }
         return migrator
     }
 
@@ -100,7 +109,8 @@ final class SessionStore: ObservableObject {
                     title: record.title,
                     messages: (messagesBySession[record.id] ?? []).map(\.chatMessage),
                     createdAt: record.createdAt,
-                    updatedAt: record.updatedAt
+                    updatedAt: record.updatedAt,
+                    isPinned: record.isPinned
                 )
             }
         } catch {
@@ -148,7 +158,8 @@ final class SessionStore: ObservableObject {
             title: title,
             messages: [],
             createdAt: now,
-            updatedAt: now
+            updatedAt: now,
+            isPinned: false
         )
         sessions.insert(session, at: 0)
         do {
@@ -157,7 +168,8 @@ final class SessionStore: ObservableObject {
                     id: session.id.uuidString,
                     title: title,
                     createdAt: now,
-                    updatedAt: now
+                    updatedAt: now,
+                    isPinned: session.isPinned
                 )
                 try record.insert(db)
             }
@@ -301,7 +313,8 @@ final class SessionStore: ObservableObject {
                     )
                 },
                 createdAt: session.createdAt,
-                updatedAt: session.updatedAt
+                updatedAt: session.updatedAt,
+                isPinned: session.isPinned
             )
         }
 
@@ -455,7 +468,8 @@ final class SessionStore: ObservableObject {
             id: session.id.uuidString,
             title: session.title,
             createdAt: session.createdAt,
-            updatedAt: session.updatedAt
+            updatedAt: session.updatedAt,
+            isPinned: session.isPinned
         )
         try sessionRecord.insert(db)
         for (position, message) in session.messages.enumerated() {
@@ -463,6 +477,25 @@ final class SessionStore: ObservableObject {
                 message, sessionID: session.id, position: position)
             try messageRecord.insert(db)
         }
+    }
+
+    /// 置顶 / 取消置顶会话。置顶是轻量偏好，不改变 updatedAt（不影响时间分组）。
+    func setPinned(id: UUID, pinned: Bool) {
+        guard let index = sessions.firstIndex(where: { $0.id == id }),
+            sessions[index].isPinned != pinned
+        else { return }
+        sessions[index].isPinned = pinned
+        do {
+            try dbQueue.write { db in
+                try db.execute(
+                    sql: "UPDATE session SET isPinned = ? WHERE id = ?",
+                    arguments: [pinned, id.uuidString]
+                )
+            }
+        } catch {
+            AppLog.storage.error("置顶会话写库失败: \(error, privacy: .public)")
+        }
+        objectWillChange.send()
     }
 }
 

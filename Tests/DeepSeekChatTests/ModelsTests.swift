@@ -40,11 +40,26 @@ final class ModelsTests: XCTestCase {
                 ChatMessage(role: .assistant, content: "b", reasoning: "r"),
             ],
             createdAt: Date(),
-            updatedAt: Date()
+            updatedAt: Date(),
+            isPinned: true
         )
         let data = try JSONEncoder().encode(session)
         let decoded = try JSONDecoder().decode(ChatSession.self, from: data)
         XCTAssertEqual(decoded, session)
+        XCTAssertTrue(decoded.isPinned)
+    }
+
+    func testChatSessionDecodesLegacyJSONWithoutPinned() throws {
+        let legacy: [String: Any] = [
+            "id": UUID().uuidString,
+            "title": "旧备份",
+            "messages": [],
+            "createdAt": Date().timeIntervalSince1970,
+            "updatedAt": Date().timeIntervalSince1970,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: legacy)
+        let decoded = try JSONDecoder().decode(ChatSession.self, from: data)
+        XCTAssertFalse(decoded.isPinned, "旧备份缺少 isPinned 字段时应回退为未置顶")
     }
 
     func testSourceIDEqualsURL() {

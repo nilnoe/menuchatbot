@@ -6,6 +6,15 @@
 
 ### 新增
 
+- **会话置顶（Beta 0.3）**
+  - 侧栏新增「置顶」分组（排在时间分组之前）；hover 快捷按钮与右键菜单
+    均可置顶 / 取消置顶，状态持久化（GRDB `session.isPinned` 列，v3 迁移
+    自动升级旧库；置顶不改变 updatedAt，不影响时间分组）。
+  - 旧备份 JSON 缺少 isPinned 字段时解码回退未置顶，导入兼容。
+  - 测试从 171 增至 175（置顶持久化、不动 updatedAt、旧库迁移、旧备份解码、
+    侧栏渲染冒烟覆盖置顶行）。
+  - **否决记录**：自动标题（模型总结首条消息）确认不做，功能鸡肋。
+
 - **Token 用量展示与费用估算（Beta 0.3）**
   - 流式请求自动携带 `stream_options.include_usage`，从 Chat Completions 收尾块 /
     Responses `response.completed` 解析 token 用量（含缓存命中分项），按消息持久化
