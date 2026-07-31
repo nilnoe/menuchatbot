@@ -1,6 +1,6 @@
 # MenuChatBot 开发路线图（TODO）
 
-> 版本状态：Beta 0.2.1（2026-07-31）
+> 版本状态：Beta 0.2.2（2026-07-31）
 > 本文档记录性能问题、UI 改进与发展规划。条目以 checkbox 标记进度。
 
 > **当前进展（0.2.1）**：Beta 0.2 收尾（System Prompt / temperature、会话导入导出、代码高亮）与工程加固（CI、swift-format、性能基线、os_log、贡献/发布文档）完成；
@@ -8,6 +8,9 @@
 >
 > **当前进展（0.2.2）**：排版规范落地（设计 token）+ 消息区/输入区美化、代码块卡片、侧栏日期分组、空状态建议 chips、
 > 统一系统表面风格、短会话顶置、默认窗口 93% 铺满、设置页收尾（卡片化分组 + API Key 显示/隐藏 + 测试连接）。
+>
+> **当前进展（重构后）**：分层架构重构完成并合并至 main（见 [docs/REFACTORING.md](docs/REFACTORING.md)），
+> 测试 146 全绿；重构只动结构不动行为，功能路线图不受影响。
 >
 > **下一步方向**：① Beta 0.2 收尾剩余项：侧栏 hover 操作（重命名/删除）、会话图标（快捷键与全局热键按需求暂不做）；
 > ② Beta 0.3：自定义模型供应商（OpenAI 兼容 base_url）、Token 用量展示、会话置顶/归档/标签、自动标题。
@@ -22,7 +25,8 @@
 
 1. **全量重渲染**
    `SessionStore.updateMessage()` 每次分片都调用 `objectWillChange.send()`，而 ChatView / SidebarView 都观察整个 `sessions` 数组 → 每次 delta 全会话重算。会话越长越卡。
-   - 涉及：`Stores.swift`（SessionStore）、`Views/ChatView.swift`
+   - 涉及：`Persistence/SessionStore.swift`、`Streaming/MessageState.swift`、
+     `Views/ChatView.swift`
 
 2. **Markdown 每次重解析**
    `MarkdownText` 的 `attributedString` 是计算属性，每帧都对**完整消息内容**执行 `AttributedString(markdown:)`。流式时每条分片重解析一次累积全文 → 单条长消息 O(n²)。
@@ -83,7 +87,8 @@
 ### 输入区 / 侧栏 / 空状态
 
 - [x] 输入框：聚焦高亮描边、发送按钮状态
-- [x] 侧栏：按"今天 / 昨天 / 更早"分组（hover 重命名/删除、会话图标待补）
+- [x] 侧栏：按"今天 / 昨天 / 更早"分组；重命名 / 删除已支持（右键菜单 + 弹窗），
+  快捷 hover 按钮与会话图标待补
 - [x] 空状态：品牌视觉 + 建议提问 chips（"帮我写周报""解释这段代码"…），点击即发送
 - [x] 设置页：卡片化分组（系统 grouped 表单 + 滚动兜底）；API Key 显示/隐藏切换；「测试连接」按钮（调 `/models` 验证 Key）
 
@@ -94,7 +99,7 @@
 ### Beta 0.2（短期）
 
 - [x] 完成第一节全部 P0 性能优化
-- [ ] 排版规范落地 + 消息区与输入区美化（第二节核心项）
+- [x] 排版规范落地 + 消息区与输入区美化（0.2.2 完成，见第二节）
 - [x] 设置：自定义 System Prompt、temperature 调节
 - [x] 会话导入 / 导出（JSON：全量备份 / 恢复 + 单会话导出，导入自动去重 ID）
 - [ ] 键盘快捷键：`⌘N` 新建会话、`⌘1~9` 切换、`Esc` 收起面板
@@ -108,6 +113,7 @@
 - [ ] Token 用量展示与费用估算
 - [ ] 会话置顶 / 归档 / 标签
 - [ ] 自动标题：模型总结首条消息生成更准确的会话名
+  （当前仅启发式：新建会话以首条消息前 30 字命名）
 
 ### 1.0（正式版）
 
