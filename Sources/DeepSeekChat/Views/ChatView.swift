@@ -27,16 +27,12 @@ private struct ChatViewportHeightKey: PreferenceKey {
 struct ChatView: View {
     @EnvironmentObject var sessionStore: SessionStore
     @EnvironmentObject var settings: SettingsStore
+    @EnvironmentObject var controller: ChatStreamController
 
     @Binding var selectedID: UUID?
     var onOpenSettings: () -> Void
     var onToggleSidebar: () -> Void
 
-    @State private var draft = ""
-    // 内部（非 private）以便测试驱动完整流式生命周期。
-    @State var streamingSessionID: UUID?
-    @State var streamingState: MessageState?
-    @State private var streamTask: Task<Void, Never>?
     @FocusState private var inputFocused: Bool
 
     // MARK: - 滚动状态
@@ -56,13 +52,17 @@ struct ChatView: View {
     }
 
     private var streamingMessageID: UUID? {
-        guard let state = streamingState, streamingSessionID == session?.id else { return nil }
+        guard let state = controller.streamingState,
+            controller.streamingSessionID == session?.id
+        else { return nil }
         return state.id
     }
 
     /// 流式分片发布器：只观察当前正在流式的那条消息，收到分片仅刷新该行。
     private var streamingTick: AnyPublisher<Void, Never> {
-        guard let state = streamingState, streamingSessionID == session?.id else {
+        guard let state = controller.streamingState,
+            controller.streamingSessionID == session?.id
+        else {
             return Empty().eraseToAnyPublisher()
         }
         return state.objectWillChange
@@ -132,7 +132,7 @@ struct ChatView: View {
                 }
                 .frame(height: 0)
 
-                if let messages = session?.messages, !messages.isEmpty {
+                if let session, !session.messages.isEmpty {
                     // 倒置聊天列表（聊天类应用的业界标准做法）：
                     // 消息按倒序渲染，容器与每行各旋转 180°（双重旋转，文本与
                     // 选区恢复正向）。新消息出现在视觉底部，贴底时只需滚动到
@@ -140,13 +140,16 @@ struct ChatView: View {
                     // “LazyVStack 程序化滚动到未物化区域 → 空白”的已知缺陷，
                     // 同时保持 LazyVStack 懒加载（不引入 VStack 全量布局的卡顿）。
                     LazyVStack(spacing: 10) {
-                        ForEach(messages.reversed()) { message in
-                            let canRetry = message.isError && message.id == messages.last?.id
+                        ForEach(session.messages.reversed()) { message in
+                            let canRetry =
+                                message.isError
+                                && message.id == session.messages.last?.id
                             MessageView(
                                 state: sessionStore.messageState(for: message),
                                 isStreaming: message.id == streamingMessageID,
                                 modelLabel: ModelInfo.info(settings.model).shortName,
-                                onRetry: canRetry ? { retryLastExchange() } : nil
+                                onRetry: canRetry
+                                    ? { controller.retryLastExchange(in: session.id) } : nil
                             )
                             .rotationEffect(.degrees(180))
                         }
@@ -210,7 +213,7 @@ struct ChatView: View {
                 }
             }
             .onChange(of: streamingMessageID) { _, newValue in
-                guard streamingSessionID == session?.id else { return }
+                guard controller.streamingSessionID == session?.id else { return }
                 if newValue != nil {
                     stickToBottom = true
                     scrollToBottom(proxy)
@@ -310,14 +313,17 @@ struct ChatView: View {
     private var composer: some View {
         VStack(spacing: 6) {
             HStack(alignment: .bottom, spacing: 8) {
-                TextField("输入消息，Enter 发送，Option + Enter 换行", text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .lineLimit(1...6)
-                    .focused($inputFocused)
-                    .onSubmit { send() }
+                TextField(
+                    "输入消息，Enter 发送，Option + Enter 换行", text: $controller.draft,
+                    axis: .vertical
+                )
+                .textFieldStyle(.plain)
+                .lineLimit(1...6)
+                .focused($inputFocused)
+                .onSubmit { send() }
 
-                if streamingSessionID != nil {
-                    Button(action: stop) {
+                if controller.streamingSessionID != nil {
+                    Button(action: controller.stop) {
                         Image(systemName: "stop.fill")
                     }
                     .buttonStyle(.bordered)
@@ -328,7 +334,7 @@ struct ChatView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(
-                        draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        controller.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                             || !settings.keyConfigured
                     )
                     .help("发送")
@@ -356,167 +362,11 @@ struct ChatView: View {
         .padding(10)
     }
 
-    // MARK: - 发送 / 停止
+    // MARK: - 发送（薄壳：业务在 ChatStreamController）
 
     private func send(_ preset: String? = nil) {
-        let text = (preset ?? draft).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, streamingSessionID == nil, settings.keyConfigured else { return }
-        if preset == nil {
-            draft = ""
-        }
-
-        var targetID = selectedID
-        var targetSession = targetID.flatMap { sessionStore.session(id: $0) }
-        if targetSession == nil {
-            let created = sessionStore.createSession()
-            targetSession = created
-            targetID = created.id
-            selectedID = created.id
-        }
-        guard let session = targetSession, let sessionID = targetID else { return }
-
-        if session.messages.isEmpty {
-            sessionStore.renameSession(id: sessionID, title: String(text.prefix(30)))
-        }
-        let userMessage = ChatMessage(role: .user, content: text)
-        sessionStore.appendMessage(sessionID: sessionID, userMessage)
-        beginAssistantReply(sessionID: sessionID)
-    }
-
-    /// 追加一条 assistant 占位消息并启动流式回复（发送与重试共用）。
-    private func beginAssistantReply(sessionID: UUID) {
-        let assistantMessage = ChatMessage(
-            role: .assistant,
-            content: "",
-            isSearching: settings.webSearch
-        )
-        sessionStore.appendMessage(sessionID: sessionID, assistantMessage)
-        let assistantState = sessionStore.messageState(for: assistantMessage)
-        let history = sessionStore.history(for: sessionID)
-        streamingSessionID = sessionID
-        streamingState = assistantState
-
-        streamTask?.cancel()
-        streamTask = Task { [weak sessionStore] in
-            guard let sessionStore else { return }
-            await runStream(
-                sessionStore: sessionStore,
-                sessionID: sessionID,
-                state: assistantState,
-                history: history
-            )
-            // 收尾清理前先确认流式状态仍属于本任务：
-            // 用户停止后旧任务可能仍在异步收尾，此时若已发起新一轮流式，
-            // 直接清 nil 会把新任务的流式状态覆盖掉，导致新回复失去
-            // isStreaming 标记 → 走最终 Markdown 路径 → 每分片全文重解析 → 长回复卡死空白。
-            if streamingSessionID == sessionID, streamingState === assistantState {
-                streamingSessionID = nil
-                streamingState = nil
-            }
-        }
-    }
-
-    /// 重试：删除末尾的错误回复，重新生成最后一条用户消息的回答。
-    private func retryLastExchange() {
-        guard streamingSessionID == nil, let session = session else { return }
-        if let last = session.messages.last, last.role == .assistant, last.isError {
-            sessionStore.removeMessage(sessionID: session.id, messageID: last.id)
-        }
-        beginAssistantReply(sessionID: session.id)
-    }
-
-    private func stop() {
-        streamTask?.cancel()
-        streamTask = nil
-        streamingState?.isSearching = false
-        streamingSessionID = nil
-        streamingState = nil
-    }
-
-    @MainActor
-    private func runStream(
-        sessionStore: SessionStore,
-        sessionID: UUID,
-        state: MessageState,
-        history: [APIMessage]
-    ) async {
-        // 分片节流：增量先进缓冲，每 40ms 聚合提交一次 UI 与存储，
-        // 把 SwiftUI 全文重排次数从“每个 token”降到 ~25 次/秒。
-        let flushTask = Task {
-            while !Task.isCancelled {
-                do {
-                    try await Task.sleep(for: .milliseconds(40))
-                } catch {
-                    return
-                }
-                guard state.hasPendingChanges else { continue }
-                state.flushPending()
-                sessionStore.syncMessage(state, sessionID: sessionID)
-            }
-        }
-
-        defer {
-            flushTask.cancel()
-            state.flushPending()
-            state.markStreamEnded()
-            // 所有结束路径（完成 / 错误 / 取消）都写回一次并发布，刷新会话元数据。
-            sessionStore.commitMessage(state, sessionID: sessionID)
-        }
-
-        let client = DeepSeekClient(apiKey: settings.apiKey)
-        let model = settings.model
-        let canSearch = settings.webSearch && ModelInfo.info(model).supportsResponses
-
-        let callbacks = StreamCallbacks(
-            onDelta: { chunk in
-                state.appendContent(chunk)
-            },
-            onReasoning: { chunk in
-                state.appendReasoning(chunk)
-            },
-            onSearching: {
-                state.setSearching(true)
-            },
-            onSources: { sources in
-                state.setSources(sources)
-            },
-            onDone: {
-                state.setSearching(false)
-            },
-            onError: { message in
-                state.setError(message)
-            }
-        )
-
-        do {
-            if canSearch {
-                try await client.responses(
-                    model: model,
-                    input: history,
-                    thinking: settings.thinking,
-                    effort: settings.effort,
-                    webSearch: true,
-                    systemPrompt: settings.systemPrompt,
-                    temperature: settings.temperature,
-                    callbacks: callbacks
-                )
-            } else {
-                try await client.chatCompletions(
-                    model: model,
-                    messages: history,
-                    thinking: settings.thinking,
-                    effort: settings.effort,
-                    systemPrompt: settings.systemPrompt,
-                    temperature: settings.temperature,
-                    callbacks: callbacks
-                )
-            }
-        } catch is CancellationError {
-            return
-        } catch let error as URLError where error.code == .cancelled {
-            return
-        } catch {
-            state.setError(error.localizedDescription)
+        if let created = controller.send(preset, selectedSessionID: selectedID) {
+            selectedID = created
         }
     }
 }
