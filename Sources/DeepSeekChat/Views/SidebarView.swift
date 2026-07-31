@@ -10,6 +10,7 @@ struct SidebarView: View {
     @State private var showRenameAlert = false
     @State private var renameTargetID: UUID?
     @State private var renameDraft = ""
+    @State private var hoveredSessionID: UUID?
 
     private var sortedSessions: [ChatSession] {
         sessionStore.sessions.sorted { $0.updatedAt > $1.updatedAt }
@@ -140,28 +141,62 @@ struct SidebarView: View {
     }
 
     private func sessionRow(_ session: ChatSession) -> some View {
-        Button {
-            selectedID = session.id
-        } label: {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(session.title.isEmpty ? "新对话" : session.title)
-                    .font(.callout)
-                    .lineLimit(1)
-                HStack(spacing: 6) {
-                    Text(relativeDate(session.updatedAt))
-                    Text("\(session.messages.count) 条")
+        let isSelected = selectedID == session.id
+        let isHovered = hoveredSessionID == session.id
+
+        return ZStack(alignment: .trailing) {
+            Button {
+                selectedID = session.id
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: sessionIcon(session))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .frame(width: 16)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(session.title.isEmpty ? "新对话" : session.title)
+                            .font(.callout)
+                            .lineLimit(1)
+                        HStack(spacing: 6) {
+                            Text(relativeDate(session.updatedAt))
+                            Text("\(session.messages.count) 条")
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // hover 时给右侧快捷按钮留位，避免文字被覆盖
+                    .padding(.trailing, isHovered ? 44 : 0)
                 }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+                .padding(8)
+                .background(
+                    RoundedRectangle(cornerRadius: 7)
+                        .fill(rowBackground(isSelected: isSelected, isHovered: isHovered))
+                )
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
-            .background(
-                RoundedRectangle(cornerRadius: 7)
-                    .fill(selectedID == session.id ? Color.accentColor.opacity(0.16) : Color.clear)
-            )
+            .buttonStyle(.plain)
+
+            if isHovered {
+                HStack(spacing: 2) {
+                    quickActionButton(systemImage: "pencil", help: "重命名") {
+                        renameTargetID = session.id
+                        renameDraft = session.title
+                        showRenameAlert = true
+                    }
+                    quickActionButton(systemImage: "trash", help: "删除", destructive: true) {
+                        deleteSession(session)
+                    }
+                }
+                .padding(.trailing, 8)
+                .transition(.opacity)
+            }
         }
-        .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.12)) {
+                hoveredSessionID = hovering ? session.id : nil
+            }
+        }
         .contextMenu {
             Button("重命名") {
                 renameTargetID = session.id
@@ -172,11 +207,49 @@ struct SidebarView: View {
                 SessionFileTransfer.exportSession(session, from: sessionStore)
             }
             Button("删除", role: .destructive) {
-                sessionStore.deleteSession(id: session.id)
-                if selectedID == session.id {
-                    selectedID = sessionStore.sessions.first?.id
-                }
+                deleteSession(session)
             }
+        }
+    }
+
+    private func rowBackground(isSelected: Bool, isHovered: Bool) -> Color {
+        if isSelected {
+            return Color.accentColor.opacity(0.16)
+        }
+        if isHovered {
+            return Color.secondary.opacity(0.08)
+        }
+        return Color.clear
+    }
+
+    private func sessionIcon(_ session: ChatSession) -> String {
+        // 最近一条消息带参考来源（联网搜索过）的会话用地球图标区分
+        if session.messages.last?.sources?.isEmpty == false {
+            return "globe"
+        }
+        return "bubble.left"
+    }
+
+    private func quickActionButton(
+        systemImage: String,
+        help: String,
+        destructive: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11, weight: .medium))
+                .frame(width: 18, height: 18)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(destructive ? Color.red : Color.secondary)
+        .help(help)
+    }
+
+    private func deleteSession(_ session: ChatSession) {
+        sessionStore.deleteSession(id: session.id)
+        if selectedID == session.id {
+            selectedID = sessionStore.sessions.first?.id
         }
     }
 
