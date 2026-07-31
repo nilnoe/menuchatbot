@@ -6,10 +6,12 @@ import XCTest
 
 /// 完整 ChatView 渲染复现测试：真实挂窗口、走两轮对话流程、逐帧截图，
 /// 用于定位「第二轮发送后消息区空白」。
+@MainActor
 final class ChatViewRenderTests: XCTestCase {
     private var tempDir: URL!
     private var store: SessionStore!
     private var settings: SettingsStore!
+    private var controller: ChatStreamController!
     private var selectedBox: SelectedBox!
     private var window: NSWindow!
     private var hosting: NSHostingView<AnyView>!
@@ -22,7 +24,7 @@ final class ChatViewRenderTests: XCTestCase {
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("ChatViewRender-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        store = SessionStore(storageDirectory: tempDir, saveDelay: .zero)
+        store = SessionStore(storageDirectory: tempDir)
 
         let keychain = MockKeychain()
         keychain.storage["apiKey"] = "test-key"
@@ -31,6 +33,7 @@ final class ChatViewRenderTests: XCTestCase {
             keychain: keychain,
             keychainSaveDelay: .zero
         )
+        controller = ChatStreamController(sessionStore: store, settings: settings)
         selectedBox = SelectedBox()
     }
 
@@ -47,10 +50,9 @@ final class ChatViewRenderTests: XCTestCase {
             get: { [weak self] in self?.selectedBox.id },
             set: { [weak self] in self?.selectedBox.id = $0 }
         )
-        var view = ChatView(selectedID: binding, onOpenSettings: {}, onToggleSidebar: {})
-        view.streamingSessionID = streamingSessionID
-        view.streamingState = streamingState
-        return view
+        controller.streamingSessionID = streamingSessionID
+        controller.streamingState = streamingState
+        return ChatView(selectedID: binding, onOpenSettings: {}, onToggleSidebar: {})
     }
 
     private func host(_ view: ChatView) {
@@ -65,6 +67,7 @@ final class ChatViewRenderTests: XCTestCase {
                 view
                     .environmentObject(store)
                     .environmentObject(settings)
+                    .environmentObject(controller)
                     // 显式白色背景：无边框窗口默认渲染为透明/黑，会把整窗算成墨水
                     .background(Color.white)
             )

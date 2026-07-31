@@ -127,6 +127,10 @@
 - [x] 崩溃与日志：接入系统日志（os_log），可选 Sentry
 - [x] 贡献指南：CONTRIBUTING.md、Issue/PR 模板
 - [x] 发布流程文档：docs/RELEASING.md（版本号、changelog、签名公证步骤）
+- [x] 架构重构（refactor/architecture，2026-07）：分层拆分（Domain / Services /
+  Persistence / Streaming / Views / App）、流式编排抽离 ChatStreamController、
+  SessionStoring 协议收窄、AppConfiguration 常量收敛；
+  分步计划与验收见 [docs/REFACTORING.md](docs/REFACTORING.md)
 
 ---
 

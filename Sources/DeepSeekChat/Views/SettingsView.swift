@@ -225,14 +225,16 @@ struct SettingsView: View {
     }
 
     private func checkConnection() {
-        let key = settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else { return }
+        guard !settings.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
         keyCheckState = .checking
         Task { @MainActor in
-            do {
-                let models = try await DeepSeekClient(apiKey: key).validateAPIKey()
-                keyCheckState = .success(modelCount: models.count)
-            } catch {
+            let result = await ConnectionChecker().check(apiKey: settings.apiKey)
+            switch result {
+            case .success(let modelCount):
+                keyCheckState = .success(modelCount: modelCount)
+            case .failure(let error):
                 keyCheckState = .failure(error.localizedDescription)
             }
         }

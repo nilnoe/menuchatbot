@@ -17,7 +17,7 @@ final class SettingsViewRenderTests: XCTestCase {
             .appendingPathComponent("SettingsRender-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
-        let sessionStore = SessionStore(storageDirectory: tempDir, saveDelay: .zero)
+        let sessionStore = SessionStore(storageDirectory: tempDir)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 640),

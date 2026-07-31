@@ -1,140 +1,6 @@
 import Combine
 import Foundation
 import GRDB
-import Security
-
-/// 单条消息的可观察状态。
-///
-/// 流式回复期间每次 token 分片只更新当前消息的 `MessageState`，
-/// 由对应消息行单独观察，避免触发整棵视图树（会话列表 / 全部消息）重算。
-///
-/// 文本累积采用「增量缓冲 + 定时聚合」：
-/// 分片先追加进 `pendingContent`（不触发发布），由调用方按 30~60ms 窗口调用
-/// `flushPending()` 一次性提交。否则每分片都会让 SwiftUI 对**全文**重新排版，
-/// 单条长消息会退化成 O(n²)。
-final class MessageState: ObservableObject, Identifiable {
-    let id: UUID
-    let role: Role
-    let createdAt: Date
-
-    @Published private(set) var content: String
-    @Published private(set) var reasoning: String?
-    @Published var sources: [Source]?
-    @Published var isSearching: Bool
-    @Published private(set) var isError: Bool
-    /// 消息自身是否处于流式（由本对象维护，不依赖 ChatView 的可覆盖状态）。
-    /// 即使外部流式状态被旧任务收尾误清，行内仍走节流的实时渲染路径。
-    @Published private(set) var isStreaming = false
-
-    /// 尚未聚合到 UI 的流式增量。
-    private var pendingContent = ""
-    private var pendingReasoning = ""
-
-    init(message: ChatMessage) {
-        self.id = message.id
-        self.role = message.role
-        self.createdAt = message.createdAt
-        self.content = message.content
-        self.reasoning = message.reasoning
-        self.sources = message.sources
-        self.isSearching = message.isSearching
-        self.isError = message.isError
-    }
-
-    var hasPendingChanges: Bool {
-        !pendingContent.isEmpty || !pendingReasoning.isEmpty
-    }
-
-    /// 追加正文分片：只进缓冲，不发布。
-    func appendContent(_ chunk: String) {
-        pendingContent += chunk
-        if !isStreaming { isStreaming = true }
-    }
-
-    /// 追加思考分片：只进缓冲，不发布。
-    func appendReasoning(_ chunk: String) {
-        pendingReasoning += chunk
-        if !isStreaming { isStreaming = true }
-    }
-
-    /// 流式结束（完成 / 错误 / 取消）时调用，恢复非流式渲染。
-    func markStreamEnded() {
-        if isStreaming { isStreaming = false }
-    }
-
-    /// 把缓冲的增量一次性提交给 UI（触发一次 objectWillChange）。
-    func flushPending() {
-        if !pendingContent.isEmpty {
-            content += pendingContent
-            pendingContent = ""
-        }
-        if !pendingReasoning.isEmpty {
-            reasoning = (reasoning ?? "") + pendingReasoning
-            pendingReasoning = ""
-        }
-    }
-
-    func setSearching(_ value: Bool) {
-        isSearching = value
-    }
-
-    func setSources(_ sources: [Source]) {
-        self.sources = sources
-        isSearching = false
-    }
-
-    /// 出错时丢弃未提交的增量，直接替换为错误信息。
-    func setError(_ message: String) {
-        pendingContent = ""
-        pendingReasoning = ""
-        content = message
-        isError = true
-        isSearching = false
-    }
-}
-
-// MARK: - SQLite 记录（GRDB Record）
-
-/// `session` 表记录。
-struct SessionRecord: Codable, FetchableRecord, MutablePersistableRecord, TableRecord {
-    static let databaseTableName = "session"
-
-    var id: String
-    var title: String
-    var createdAt: Date
-    var updatedAt: Date
-}
-
-/// `message` 表记录。sources 以 JSON 文本存于单列，避免引入嵌套表。
-struct MessageRecord: Codable, FetchableRecord, MutablePersistableRecord, TableRecord {
-    static let databaseTableName = "message"
-
-    var id: String
-    var sessionID: String
-    var role: String
-    var content: String
-    var reasoning: String?
-    var sourcesJSON: String?
-    var isSearching: Bool
-    var isError: Bool
-    var createdAt: Date
-    var position: Int
-
-    var chatMessage: ChatMessage {
-        ChatMessage(
-            id: UUID(uuidString: id) ?? UUID(),
-            role: role == "user" ? .user : .assistant,
-            content: content,
-            reasoning: reasoning,
-            sources: sourcesJSON.flatMap { json in
-                try? JSONDecoder().decode([Source].self, from: Data(json.utf8))
-            },
-            isSearching: isSearching,
-            isError: isError,
-            createdAt: createdAt
-        )
-    }
-}
 
 final class SessionStore: ObservableObject {
     /// 会话数据。setter 设为 private：所有 UI 通知改为显式
@@ -147,12 +13,7 @@ final class SessionStore: ObservableObject {
     /// 保证流式更新只刷新该消息所在的视图。
     private var messageStates: [UUID: MessageState] = [:]
 
-    init(
-        storageDirectory: URL? = nil,
-        saveDelay: Duration = .milliseconds(600)
-    ) {
-        // saveDelay 仅保留以兼容调用方：SQLite 改为逐行即时写入，
-        // 不再需要“整库 JSON 编码 + 防抖落盘”，也就消除了长会话的编码瓶颈。
+    init(storageDirectory: URL? = nil) {
         let dir = storageDirectory ?? SessionStore.defaultDirectory()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         directory = dir
@@ -181,7 +42,8 @@ final class SessionStore: ObservableObject {
     private static func defaultDirectory() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
             .first!
-        return base.appendingPathComponent("com.deepseek.chat", isDirectory: true)
+        return base.appendingPathComponent(
+            AppConfiguration.appSupportDirectoryName, isDirectory: true)
     }
 
     // MARK: - Schema
@@ -590,140 +452,6 @@ final class SessionStore: ObservableObject {
     }
 }
 
-final class SettingsStore: ObservableObject {
-    @Published var model: String {
-        didSet { defaults.set(model, forKey: "model") }
-    }
-    @Published var thinking: Bool {
-        didSet { defaults.set(thinking, forKey: "thinking") }
-    }
-    @Published var effort: Effort {
-        didSet { defaults.set(effort.rawValue, forKey: "effort") }
-    }
-    @Published var webSearch: Bool {
-        didSet { defaults.set(webSearch, forKey: "webSearch") }
-    }
-    /// 自定义系统提示词（System Prompt）。空字符串 = 使用模型默认。
-    @Published var systemPrompt: String {
-        didSet { defaults.set(systemPrompt, forKey: "systemPrompt") }
-    }
-    /// temperature（0~2）；nil = 跟随模型默认，不随请求发送。
-    @Published var temperature: Double? {
-        didSet {
-            if let temperature {
-                defaults.set(temperature, forKey: "temperature")
-            } else {
-                defaults.removeObject(forKey: "temperature")
-            }
-        }
-    }
-    @Published var apiKey: String {
-        didSet {
-            if keychainSaveDelay == .zero {
-                persistKey(value: apiKey)
-            } else {
-                keychainSaveTask?.cancel()
-                let value = apiKey
-                let delay = keychainSaveDelay
-                // Keychain 写入可能阻塞，防抖后在后台线程执行
-                keychainSaveTask = Task.detached(priority: .utility) { [weak self] in
-                    try? await Task.sleep(for: delay)
-                    guard !Task.isCancelled, let self else { return }
-                    self.persistKey(value: value)
-                }
-            }
-        }
-    }
+// MARK: - MessageSynchronizing（流式写回契约）
 
-    private let defaults: UserDefaults
-    private let keychain: KeychainStoring
-    private let keychainSaveDelay: Duration
-    private var keychainSaveTask: Task<Void, Never>?
-
-    init(
-        defaults: UserDefaults = .standard,
-        keychain: KeychainStoring = KeychainStore.shared,
-        keychainSaveDelay: Duration = .milliseconds(600)
-    ) {
-        self.defaults = defaults
-        self.keychain = keychain
-        self.keychainSaveDelay = keychainSaveDelay
-        let savedModel = defaults.string(forKey: "model") ?? "deepseek-v4-flash"
-        model =
-            savedModel == "deepseek-chat" || savedModel == "deepseek-reasoner"
-            ? "deepseek-v4-flash"
-            : savedModel
-        thinking = defaults.object(forKey: "thinking") as? Bool ?? true
-        effort = Effort(rawValue: defaults.string(forKey: "effort") ?? "") ?? .high
-        webSearch = defaults.bool(forKey: "webSearch")
-        systemPrompt = defaults.string(forKey: "systemPrompt") ?? ""
-        if defaults.object(forKey: "temperature") != nil {
-            temperature = defaults.double(forKey: "temperature")
-        } else {
-            temperature = nil
-        }
-        apiKey = keychain.read(account: "apiKey") ?? ""
-    }
-
-    var keyConfigured: Bool {
-        !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private func persistKey(value: String) {
-        if value.isEmpty {
-            keychain.delete(account: "apiKey")
-        } else {
-            keychain.write(account: "apiKey", value: value)
-        }
-    }
-}
-
-protocol KeychainStoring {
-    func read(account: String) -> String?
-    func write(account: String, value: String)
-    func delete(account: String)
-}
-
-struct KeychainStore: KeychainStoring {
-    static let shared = KeychainStore()
-    private static let service = "com.deepseek.chat"
-
-    func read(account: String) -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let data = item as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    func write(account: String, value: String) {
-        let data = Data(value.utf8)
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
-            kSecAttrAccount as String: account,
-        ]
-        let attributes: [String: Any] = [kSecValueData as String: data]
-        let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        if status == errSecItemNotFound {
-            var newItem = query
-            newItem[kSecValueData as String] = data
-            SecItemAdd(newItem as CFDictionary, nil)
-        }
-    }
-
-    func delete(account: String) {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
-            kSecAttrAccount as String: account,
-        ]
-        SecItemDelete(query as CFDictionary)
-    }
-}
+extension SessionStore: SessionStoring {}

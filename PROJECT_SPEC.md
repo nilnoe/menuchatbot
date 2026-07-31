@@ -1,7 +1,7 @@
 # DeepSeek Chat 工程规范
 
 > 本文档是 MenuChatBot（DeepSeek Chat）的工程规范，所有代码与改动必须遵守。
-> 版本状态：Beta 0.2 · 纯 Swift / SwiftUI 原生 macOS 菜单栏应用。
+> 版本状态：Beta 0.2.2+ · 纯 Swift / SwiftUI 原生 macOS 菜单栏应用。
 
 ---
 
@@ -54,6 +54,46 @@
   禁止"每 token 触发整树重算 / 全文重解析"。
 - **存储**：所有会话读写经 `SessionStore`（GRDB 队列），UI 不直接碰 SQL。
 - **隐私底线**：API Key 只存钥匙串；会话数据默认不离开本机。
+
+### 3.1 目录分层（2026-07 重构后）
+
+源码按职责分层组织（SwiftPM 单 target，目录是组织手段），依赖方向单向：
+
+```
+Views → Streaming → Services / Persistence → Domain
+             ↑                    ↑
+             └── App（Composition Root，只做装配）
+```
+
+```
+Sources/DeepSeekChat/
+├─ App/          入口（@main）、AppDelegate 装配、PanelController、
+│                StatusItemController、MainMenuBuilder
+├─ Domain/       领域模型：ChatMessage / ChatSession / Role / Source、
+│                导入导出 DTO、Effort 枚举
+├─ Services/     网络层（DeepSeekClient / SSEParser / APIMessage）、
+│                ModelCatalog、MarkdownCache、ConnectionChecker
+├─ Persistence/  SessionStore（仓储）、GRDB 记录、SettingsStore、
+│                KeychainStore、旧数据迁移
+├─ Streaming/    MessageState（可观察流式状态 + 增量缓冲）、
+│                ChatStreamController（流式编排）、SessionStoring 协议
+├─ Views/        纯视图 + 视图支撑（DesignTokens / CodeHighlighter /
+│                SessionFileTransfer 等 AppKit 文件面板能力）
+└─ AppConfiguration.swift  应用级常量单一入口
+```
+
+分层规则：
+
+1. **依赖方向**：Views 可依赖任意下层；Streaming 可依赖 Services /
+   Persistence / Domain；Services、Persistence 只能依赖 Domain；
+   Domain 不依赖任何上层；App 只做装配。
+2. **接口隔离**：流式编排只依赖 `SessionStoring` 协议（继承
+   `MessageSynchronizing`），不直接耦合 `SessionStore` 全部公开 API；
+   视图仍直接使用具体 store。
+3. **视图纯净**：View 文件不得包含网络、存储、解析逻辑；业务编排在
+   `ChatStreamController` / Store 层。
+4. **例外**：`Views/CodeHighlighter.swift` 引入 Highlighter 属视图层渲染
+   适配器（MarkdownUI `CodeSyntaxHighlighter` 实现），是刻意保留的例外。
 
 ## 4. 代码与测试规范
 

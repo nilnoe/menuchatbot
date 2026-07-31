@@ -6,5 +6,6 @@ import os
 /// 不再使用 NSLog 直接打到 stderr。
 enum AppLog {
     /// 数据库与存储相关（SQLite / GRDB / 迁移）。
-    static let storage = Logger(subsystem: "com.deepseek.chat", category: "storage")
+    static let storage = Logger(
+        subsystem: AppConfiguration.bundleIdentifier, category: "storage")
 }

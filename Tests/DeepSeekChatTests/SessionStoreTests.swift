@@ -16,7 +16,7 @@ final class SessionStoreTests: XCTestCase {
     }
 
     private func makeStore() -> SessionStore {
-        SessionStore(storageDirectory: tempDir, saveDelay: .zero)
+        SessionStore(storageDirectory: tempDir)
     }
 
     private func writeFile(_ name: String, _ data: Data) throws {
@@ -535,7 +535,7 @@ final class SessionStoreTests: XCTestCase {
     func testExportSingleSession() throws {
         let store = makeStore()
         let a = store.createSession(title: "A")
-        let b = store.createSession(title: "B")
+        _ = store.createSession(title: "B")
 
         let data = try XCTUnwrap(try store.exportSessionJSON(id: a.id))
         let export = try JSONDecoder().decode(SessionExport.self, from: data)
