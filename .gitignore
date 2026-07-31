@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+*.swp
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+
+# SwiftPM
+.build/
+.swiftpm/
+
+# 构建产物
+dist/
+
+# 本地密钥与配置
+.env
+.env.local
