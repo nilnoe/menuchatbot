@@ -43,10 +43,15 @@ struct SettingsView: View {
                     dataSection
                 }
                 .formStyle(.grouped)
+                // 表单限宽 420 居中；外层不再固定 420pt——
+                // 固定宽度会成为内容固有宽度，把 NSPanel 拽窄且 autosave
+                // 记住窄尺寸，返回主界面后窗口无法恢复原大小。
+                .frame(maxWidth: 420)
+                .frame(maxWidth: .infinity)
             }
         }
         .padding(DesignTokens.Spacing.lg)
-        .frame(width: 420)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             // 面板显示后自动聚焦输入框，保证粘贴/输入直达
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
