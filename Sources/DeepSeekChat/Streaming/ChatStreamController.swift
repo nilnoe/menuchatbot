@@ -16,12 +16,12 @@ final class ChatStreamController: ObservableObject {
     @Published var streamingState: MessageState?
 
     private var streamTask: Task<Void, Never>?
-    private let sessionStore: SessionStore
+    private let sessionStore: SessionStoring
     private let settings: SettingsStore
     private let makeClient: (String) -> DeepSeekClient
 
     init(
-        sessionStore: SessionStore,
+        sessionStore: SessionStoring,
         settings: SettingsStore,
         makeClient: @escaping @MainActor (String) -> DeepSeekClient = {
             DeepSeekClient(apiKey: $0)
@@ -47,7 +47,7 @@ final class ChatStreamController: ObservableObject {
         var targetID = selectedSessionID
         var targetSession = targetID.flatMap { sessionStore.session(id: $0) }
         if targetSession == nil {
-            let created = sessionStore.createSession()
+            let created = sessionStore.createSession(title: "新对话")
             targetSession = created
             targetID = created.id
         }

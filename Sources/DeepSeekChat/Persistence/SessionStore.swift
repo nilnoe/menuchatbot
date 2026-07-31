@@ -456,3 +456,7 @@ final class SessionStore: ObservableObject {
         }
     }
 }
+
+// MARK: - MessageSynchronizing（流式写回契约）
+
+extension SessionStore: SessionStoring {}
