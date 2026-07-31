@@ -30,16 +30,24 @@ enum DesignTokens {
     /// 正文行高（1.5 倍），中文排版更透气。
     static let bodyLineHeight: CGFloat = 21
 
-    /// 消息区最大宽度：大窗口下内容居中，避免整行被拉满。
-    static let messageMaxWidth: CGFloat = 780
+    // MARK: - 对话内容列（随主区宽度等比缩放）
 
-    /// 用户气泡最大宽度：短文本贴合文字，长文本在此宽度内换行。
+    /// 对话列占主区宽度的比例：窗口调整时「对话与主区」比例保持不变，
+    /// 两侧空隙各占 (1 - ratio) / 2，随窗口等比缩放。
+    /// （0.2.x 的固定 780pt 上限会导致大窗口两侧空隙变大。）
+    static let messageColumnRatio: CGFloat = 0.86
+
+    /// 用户气泡占对话列宽的比例：短文本仍贴合文字，长文本在此比例内换行。
     /// （不能把 maxWidth 直接放在 HStack 内的气泡上——实测会被撑满；
     /// 正确做法是限制整行宽度，让气泡在行内自然贴合。）
-    static let userBubbleMaxWidth: CGFloat = 520
+    static let userBubbleColumnRatio: CGFloat = 0.66
 
-    /// assistant 气泡最大宽度（Markdown 阅读需要更宽）。
-    static let assistantBubbleMaxWidth: CGFloat = 720
+    /// assistant 气泡占对话列宽的比例（Markdown 阅读需要更宽）。
+    static let assistantBubbleColumnRatio: CGFloat = 0.92
+
+    /// 参考列宽：MessageView 未传入 columnWidth 时的回退值
+    /// （约等于 0.2.x 的固定 780pt 设计；生产环境由 ChatView 按窗口传入）。
+    static let referenceColumnWidth: CGFloat = 780
 
     // MARK: - 侧栏（会话列表）
     enum Sidebar {
@@ -47,7 +55,7 @@ enum DesignTokens {
         static let width: CGFloat = 176
 
         /// hover 快捷按钮组：置顶 / 重命名 / 删除。
-        static let quickActionButtonSize: CGFloat = 18
+        static let quickActionButtonSize: CGFloat = 22
         static let quickActionSpacing: CGFloat = 2
         static let quickActionsTrailingPadding: CGFloat = 8
 
