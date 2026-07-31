@@ -2,6 +2,29 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格记录各版本变化。
 
+## [Unreleased]
+
+### 重构（refactor/architecture）
+
+按 [docs/REFACTORING.md](docs/REFACTORING.md) 完成分层架构重构，行为零变化：
+
+- **文件级拆分**：`Stores.swift`（729 行）按职责拆为 Streaming / Persistence
+  六个文件；`Models.swift` 拆为 Domain / Services 五层；`MarkdownCache`
+  从视图文件抽出到 Services。
+- **流式编排抽离（MVVM）**：`ChatView`（522 行）中的发送 / 重试 / 停止 /
+  流式循环整体迁入 `ChatStreamController`（`@MainActor` ObservableObject），
+  视图退化为纯展示；设置页连接测试抽为 `ConnectionChecker`。
+- **App 层拆分**：`AppDelegate` 瘦身为 Composition Root，拆出
+  `PanelController` / `StatusItemController` / `MainMenuBuilder`。
+- **依赖收窄**：新增 `SessionStoring`（继承 `MessageSynchronizing`）协议，
+  流式编排只依赖该协议，便于测试注入与替换实现。
+- **常量收敛**：新增 `AppConfiguration` 统一 bundle id、存储目录、设置键、
+  面板 autosave 名称；移除 `SessionStore` 残留的 `saveDelay` 参数。
+- **测试**：新增 `ChatStreamControllerTests`（发送 / 复用会话 / 重试 / 停止 /
+  错误 / 旧任务延迟收尾竞态回归），测试从 140 增至 146。
+
+> 关键取舍记录见 `docs/decisions/`（ADR）。
+
 ## [0.2.0] - 2026-07-31
 
 ### 里程碑

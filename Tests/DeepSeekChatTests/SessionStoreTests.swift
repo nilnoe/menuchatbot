@@ -16,7 +16,7 @@ final class SessionStoreTests: XCTestCase {
     }
 
     private func makeStore() -> SessionStore {
-        SessionStore(storageDirectory: tempDir, saveDelay: .zero)
+        SessionStore(storageDirectory: tempDir)
     }
 
     private func writeFile(_ name: String, _ data: Data) throws {

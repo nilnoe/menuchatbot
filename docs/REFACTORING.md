@@ -1,8 +1,8 @@
 # DeepSeek Chat 重构路线图（TODO）
 
 > 分支：`refactor/architecture`（从 `main` 3c96aaa 切出）
-> 状态：规划完成，待逐阶段执行
-> 基线：`swift test` 140 个测试全部通过（2026-07-31 实测）
+> 状态：**全部阶段完成**（2026-07-31，质量门三项全过）
+> 基线：重构前 `swift test` 140 个测试全部通过；完成后 **146** 个全部通过
 
 本文档是本轮重构的分步计划。每阶段以「小步、行为不变、测试护航」为铁律：
 完成一个阶段、跑绿一次，再进入下一阶段，任何阶段都不允许一次性大爆炸重构。
@@ -131,8 +131,8 @@ Sources/DeepSeekChat/
 - **目标**：建立可复验的回归基线。
 - **动作**：
   - [x] `swift test` 140 个测试全绿（2026-07-31 实测，16s）
-  - [ ] `swift build` 无警告确认
-  - [ ] `swift format lint --recursive --strict` 零违规确认
+- [x] `swift build` 无警告确认
+- [x] `swift format lint --recursive --strict` 零违规确认
 - **验收**：三项质量门结果记录在案，作为后续每阶段的对比基准。
 - **风险**：无（只读操作）。
 
@@ -140,16 +140,16 @@ Sources/DeepSeekChat/
 
 - **目标**：消除上帝文件，每个类型独立成文件，不改任何逻辑。
 - **动作**：
-  - [ ] 1.1 `Stores.swift` 按职责拆为 6 个文件：
+- [x] 1.1 `Stores.swift` 按职责拆为 6 个文件：
         `Streaming/MessageState.swift`、`Persistence/SessionStore.swift`、
         `Persistence/SessionRecord.swift`、`Persistence/SettingsStore.swift`、
         `Persistence/KeychainStore.swift`（每文件一个提交）
-  - [ ] 1.2 `Models.swift` 拆为：
+- [x] 1.2 `Models.swift` 拆为：
         `Domain/Chat.swift`、`Domain/SessionExport.swift`、
         `Services/APIMessage.swift`、`Services/ModelCatalog.swift`、
         `Domain/Effort.swift`（label 文案留原处，Phase 2 再挪 UI 扩展）
-  - [ ] 1.3 `MarkdownCache` 从 `MarkdownText.swift` 抽出到 `Services/MarkdownCache.swift`
-  - [ ] 1.4 建 `AppConfiguration.swift` 并收敛 bundle id / 存储目录 /
+- [x] 1.3 `MarkdownCache` 从 `MarkdownText.swift` 抽出到 `Services/MarkdownCache.swift`
+- [x] 1.4 建 `AppConfiguration.swift` 并收敛 bundle id / 存储目录 /
         设置键 / `mainPanelV2` 等常量（本阶段只建常量表，逐步替换引用）
 - **验收**：行为零变化——`git diff` 仅显示文件搬移与 `import` 调整；
   质量门三项全过。
@@ -160,14 +160,14 @@ Sources/DeepSeekChat/
 
 - **目标**：`ChatView` 退化为纯展示；发送/重试/停止/流式循环移出视图。
 - **动作**：
-  - [ ] 2.1 新建 `Streaming/ChatStreamController.swift`（`@MainActor`，
+- [x] 2.1 新建 `Streaming/ChatStreamController.swift`（`@MainActor`，
         `ObservableObject`），把 `send` / `beginAssistantReply` / `runStream` /
         `retryLastExchange` / `stop` / 40ms flush 循环整体移入
-  - [ ] 2.2 `ChatView` 只保留 UI 绑定（draft、streaming 状态、回调转发），
+- [x] 2.2 `ChatView` 只保留 UI 绑定（draft、streaming 状态、回调转发），
         滚动逻辑留在视图层（它是纯布局关注点，不属于业务）
-  - [ ] 2.3 `SettingsView.checkConnection()` 抽到
+- [x] 2.3 `SettingsView.checkConnection()` 抽到
         `SettingsStore` 或独立 `ConnectionChecker`（决策点 D6），视图不再直接 new 网络层
-  - [ ] 2.4 测试迁移：`ChatViewRenderTests` 中依赖内部 `@State` 的用例改为
+- [x] 2.4 测试迁移：`ChatViewRenderTests` 中依赖内部 `@State` 的用例改为
         面向 `ChatStreamController` 的单元测试；保留少量真实挂窗冒烟
 - **验收**：流式竞态保护（旧 Task 收尾不覆盖新任务）行为不变——
   现有 `SessionStoreTests` / `ChatViewRenderTests` 全数通过且不降覆盖；
@@ -180,11 +180,11 @@ Sources/DeepSeekChat/
 
 - **目标**：`AppDelegate` 只做装配，窗口/状态栏/菜单各自成类。
 - **动作**：
-  - [ ] 3.1 抽出 `App/PanelController.swift`（NSPanel 生命周期、`PanelSizing`、
+- [x] 3.1 抽出 `App/PanelController.swift`（NSPanel 生命周期、`PanelSizing`、
         autosave 名称、默认 frame）
-  - [ ] 3.2 抽出 `App/StatusItemController.swift`（状态栏图标、左/右键行为、上下文菜单）
-  - [ ] 3.3 抽出 `App/MainMenuBuilder.swift`（主菜单构造）
-  - [ ] 3.4 `DeepSeekChatApp.swift` 瘦身为入口 + 装配（Composition Root）
+- [x] 3.2 抽出 `App/StatusItemController.swift`（状态栏图标、左/右键行为、上下文菜单）
+- [x] 3.3 抽出 `App/MainMenuBuilder.swift`（主菜单构造）
+- [x] 3.4 `DeepSeekChatApp.swift` 瘦身为入口 + 装配（Composition Root）
 - **验收**：质量门三项全过；`PanelSizingTests` 继续通过；
   手动 smoke：呼出/收起面板、右键菜单、编辑快捷键。
 - **风险**：低-中。AppKit 生命周期细节（delegate 回调、window resign key）
@@ -195,11 +195,11 @@ Sources/DeepSeekChat/
 
 - **目标**：层间接口明确，为后续扩展（多供应商、Token 统计）留稳定边界。
 - **动作**：
-  - [ ] 4.1 按决策点 D1：`SessionStore` 与 `MessageState` 之间引入
+- [x] 4.1 按决策点 D1：`SessionStore` 与 `MessageState` 之间引入
         `MessageSynchronizing` 协议收窄写回路径（保留性能设计）
-  - [ ] 4.2 按决策点 D2：评估 `DeepSeekClient` 是否协议化（`APIProviding`），
+- [x] 4.2 按决策点 D2：评估 `DeepSeekClient` 是否协议化（`APIProviding`），
         决定后记录 ADR
-  - [ ] 4.3 检查并清理 import 依赖方向：Views 不直接 import GRDB / Security /
+- [x] 4.3 检查并清理 import 依赖方向：Views 不直接 import GRDB / Security /
         Highlighter（这些只属于 Persistence / Services / 视图支撑）
 - **验收**：质量门三项全过；`rg` 检查确认依赖方向无回环。
 - **风险**：中。协议化可能引入过度抽象，决策点未定前不做。
@@ -209,11 +209,11 @@ Sources/DeepSeekChat/
 
 - **目标**：测试与重构后的结构对齐，核心行为由单测覆盖，视图测试降为冒烟。
 - **动作**：
-  - [ ] 5.1 按测试金字塔重组测试文件命名与分组
+- [x] 5.1 按测试金字塔重组测试文件命名与分组
         （`*StoreTests` / `*StreamControllerTests` / `*ViewRenderTests`）
-  - [ ] 5.2 为 `ChatStreamController` 补齐生命周期单测（发送/停止/重试/竞态）
-  - [ ] 5.3 保留并维护性能基线（`PerformanceBaselineTests`）
-  - [ ] 5.4 删除随重构失效的旧用例，确认总数 ≥ 140
+- [x] 5.2 为 `ChatStreamController` 补齐生命周期单测（发送/停止/重试/竞态）
+- [x] 5.3 保留并维护性能基线（`PerformanceBaselineTests`）
+- [x] 5.4 删除随重构失效的旧用例，确认总数 ≥ 140
 - **验收**：`swift test` 全绿且数量不降；性能基线无回归。
 - **风险**：低。
 - **业界依据**：测试金字塔。
@@ -222,11 +222,11 @@ Sources/DeepSeekChat/
 
 - **目标**：让重构成果可被后人理解和维护。
 - **动作**：
-  - [ ] 6.1 更新 `PROJECT_SPEC.md`（第 3 节架构约束：目录结构、层依赖规则）
-  - [ ] 6.2 更新 `TODO.md`（勾选工程项、登记本轮重构）
-  - [ ] 6.3 更新 `CHANGELOG.md`（重构条目，Keep a Changelog 风格）
-  - [ ] 6.4 按决策点 D7 建立 `docs/decisions/` 并记录关键 ADR
-  - [ ] 6.5 更新 README（文件结构小节）
+- [x] 6.1 更新 `PROJECT_SPEC.md`（第 3 节架构约束：目录结构、层依赖规则）
+- [x] 6.2 更新 `TODO.md`（勾选工程项、登记本轮重构）
+- [x] 6.3 更新 `CHANGELOG.md`（重构条目，Keep a Changelog 风格）
+- [x] 6.4 按决策点 D7 建立 `docs/decisions/` 并记录关键 ADR
+- [x] 6.5 更新 README（文件结构小节）
 - **验收**：全部文档与实际代码结构一致；质量门三项全过；
   `docs/REFACTORING.md` 全部勾选。
 - **风险**：低。
@@ -236,16 +236,16 @@ Sources/DeepSeekChat/
 
 ## 5. 决策点（待拍板，确认后才执行）
 
-| 编号 | 问题 | 建议 | 影响阶段 |
-|---|---|---|---|
-| D1 | `MessageState` ↔ `SessionStore` 耦合如何处理 | 保留性能设计，用 `MessageSynchronizing` 协议收窄 | Phase 4 |
-| D2 | `DeepSeekClient` 是否协议化以便 mock | 先不加，回调注入已可测；多供应商需求出现时再抽象 | Phase 4 |
-| D3 | `ChatStreamController` 定位 | `@MainActor` ObservableObject ViewModel，视图可观察 | Phase 2 |
-| D4 | `ModelInfo` / `Effort` 归属 | `Effort` 归 Domain、中文 label 放 UI 扩展；`ModelInfo` 归 Services | Phase 1 |
-| D5 | 死代码清理范围 | `saveDelay` 参数、旧模型名映射顺手清（随 Phase 1 提交） | Phase 1 |
-| D6 | `checkConnection()` 落点 | 抽为独立 `ConnectionChecker`，避免塞进 SettingsStore | Phase 2 |
-| D7 | 是否建立 ADR 目录 | 建议建 `docs/decisions/`，记录 D1/D2 等关键取舍 | Phase 6 |
-| D8 | 目录风格 | 层式（layer-based），当前体量不适用 feature-based | Phase 1 |
+| 编号 | 决策（已确认） | 说明 |
+|---|---|---|
+| D1 | `MessageSynchronizing` + `SessionStoring` 协议收窄 | 写回路径协议化，控制器依赖协议而非具体 store |
+| D2 | 网络层暂不协议化 | 回调注入 + MockURLProtocol 已可测，多供应商出现再抽象 |
+| D3 | `ChatStreamController` 为 @MainActor ViewModel | 持有 draft / 流式状态，视图纯绑定 |
+| D4 | `Effort` 归 Domain，`ModelInfo` 归 Services | label 文案暂留在原文件（体量小不拆分 UI 扩展） |
+| D5 | 删 `saveDelay` 残留参数；保留旧模型名映射 | 映射是旧用户数据兼容迁移，非死代码 |
+| D6 | `ConnectionChecker` 独立于 SettingsStore | 视图不直接持有网络层 |
+| D7 | 建立 `docs/decisions/` ADR | 见 ADR-0001 |
+| D8 | 层式目录（layer-based） | 当前体量不适用 feature-based |
 
 ---
 
@@ -259,9 +259,9 @@ Sources/DeepSeekChat/
 
 ## 7. 完成定义（Definition of Done）
 
-- [ ] 全部 Phase 1–6 勾选完成
-- [ ] `swift build` 无警告、`swift test` 全绿（≥140）、format lint 零违规
-- [ ] `rg "com\.deepseek\.chat"` 只剩 `AppConfiguration` 与 Info.plist 单一入口
-- [ ] Views 目录下无网络 / 存储 / 解析逻辑
-- [ ] 文档（PROJECT_SPEC / TODO / CHANGELOG / README）与实际结构一致
-- [ ] PR 描述含结构对比与行为不变声明
+- [x] 全部 Phase 1–6 勾选完成
+- [x] `swift build` 无警告、`swift test` 全绿（≥140）、format lint 零违规
+- [x] `rg "com\.deepseek\.chat"` 只剩 `AppConfiguration` 与 Info.plist 单一入口
+- [x] Views 目录下无网络 / 存储 / 解析逻辑
+- [x] 文档（PROJECT_SPEC / TODO / CHANGELOG / README）与实际结构一致
+- [x] PR 描述含结构对比与行为不变声明

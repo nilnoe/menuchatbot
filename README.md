@@ -88,15 +88,25 @@ menuchatbot/
 ├── Package.swift              # SwiftPM 工程定义（含测试 target）
 ├── scripts/make-app.sh        # 一键构建脚本（编译 + 打包 .app）
 ├── Sources/DeepSeekChat/
-│   ├── DeepSeekChatApp.swift  # 菜单栏图标 + 面板窗口（AppKit）
-│   ├── Models.swift           # 数据模型（会话 / 消息 / 来源）
-│   ├── Stores.swift           # 会话持久化 + 设置 + Keychain
-│   ├── DeepSeekClient.swift   # DeepSeek API 客户端（流式 SSE）
-│   ├── SSEParser.swift        # SSE 事件解析（纯函数，可单测）
-│   ├── Migration.swift        # 旧版本数据迁移
-│   └── Views/                 # SwiftUI 界面
-└── Tests/DeepSeekChatTests/   # 83 个单元测试
+│   ├── App/                   # 入口 + 装配（AppDelegate）、面板 /
+│   │                         #   状态栏图标 / 主菜单控制器
+│   ├── Domain/                # 领域模型：会话 / 消息 / 来源 / 导入导出 DTO
+│   ├── Services/              # 网络层（DeepSeekClient / SSEParser）、
+│   │                         #   ModelCatalog / MarkdownCache / ConnectionChecker
+│   ├── Persistence/           # SessionStore（仓储）、GRDB 记录、
+│   │                         #   SettingsStore / KeychainStore / 迁移
+│   ├── Streaming/             # MessageState（流式状态 + 增量缓冲）、
+│   │                         #   ChatStreamController（流式编排）
+│   ├── Views/                 # SwiftUI 界面（纯展示）
+│   ├── DeepSeekChatApp.swift  # @main 入口
+│   └── AppConfiguration.swift # 应用级常量单一入口
+└── Tests/DeepSeekChatTests/   # 146 个单元测试
 ```
+
+分层规则（Views → Streaming → Services / Persistence → Domain）与
+接口隔离约定见 [PROJECT_SPEC.md](PROJECT_SPEC.md) §3.1；重构过程与
+决策记录见 [docs/REFACTORING.md](docs/REFACTORING.md) 与
+[docs/decisions](docs/decisions/)。
 
 ## 数据与安全
 

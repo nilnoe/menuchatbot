@@ -24,7 +24,7 @@ final class ChatViewRenderTests: XCTestCase {
         tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("ChatViewRender-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        store = SessionStore(storageDirectory: tempDir, saveDelay: .zero)
+        store = SessionStore(storageDirectory: tempDir)
 
         let keychain = MockKeychain()
         keychain.storage["apiKey"] = "test-key"

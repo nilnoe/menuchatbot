@@ -13,12 +13,7 @@ final class SessionStore: ObservableObject {
     /// 保证流式更新只刷新该消息所在的视图。
     private var messageStates: [UUID: MessageState] = [:]
 
-    init(
-        storageDirectory: URL? = nil,
-        saveDelay: Duration = .milliseconds(600)
-    ) {
-        // saveDelay 仅保留以兼容调用方：SQLite 改为逐行即时写入，
-        // 不再需要“整库 JSON 编码 + 防抖落盘”，也就消除了长会话的编码瓶颈。
+    init(storageDirectory: URL? = nil) {
         let dir = storageDirectory ?? SessionStore.defaultDirectory()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         directory = dir
