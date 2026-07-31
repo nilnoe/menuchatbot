@@ -125,6 +125,121 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.session(id: session.id)?.messages[0].content, "a")
     }
 
+    // MARK: - 消息状态（流式性能）
+
+    func testMessageStateIsSharedPerMessage() {
+        let store = makeStore()
+        let session = store.createSession()
+        let message = ChatMessage(role: .assistant, content: "初始")
+        store.appendMessage(sessionID: session.id, message)
+
+        let first = store.messageState(for: message)
+        let second = store.messageState(for: message)
+        XCTAssertTrue(first === second, "同一消息应复用同一个状态对象")
+        XCTAssertEqual(first.content, "初始")
+        XCTAssertEqual(first.role, .assistant)
+    }
+
+    func testSyncMessageWritesThroughWithoutPublishing() {
+        let store = makeStore()
+        let session = store.createSession()
+        let message = ChatMessage(role: .assistant, content: "")
+        store.appendMessage(sessionID: session.id, message)
+        let state = store.messageState(for: message)
+
+        var publishCount = 0
+        let cancellable = store.objectWillChange.sink { publishCount += 1 }
+        _ = cancellable
+
+        state.appendContent("流式内容")
+        state.appendReasoning("推理片段")
+        state.setSearching(true)
+        state.flushPending()
+        store.syncMessage(state, sessionID: session.id)
+
+        XCTAssertEqual(publishCount, 0, "流式写回不应触发整树刷新")
+        let stored = store.session(id: session.id)?.messages[0]
+        XCTAssertEqual(stored?.content, "流式内容")
+        XCTAssertEqual(stored?.reasoning, "推理片段")
+        XCTAssertTrue(stored?.isSearching ?? false)
+    }
+
+    func testCommitMessagePublishesOnceAndFlushes() {
+        let store = makeStore()
+        let session = store.createSession()
+        let message = ChatMessage(role: .assistant, content: "")
+        store.appendMessage(sessionID: session.id, message)
+        let state = store.messageState(for: message)
+
+        var publishCount = 0
+        let cancellable = store.objectWillChange.sink { publishCount += 1 }
+        _ = cancellable
+
+        state.appendContent("最终内容")
+        state.flushPending()
+        store.commitMessage(state, sessionID: session.id)
+
+        XCTAssertEqual(publishCount, 1, "流式结束只应发布一次")
+        let stored = store.session(id: session.id)?.messages[0]
+        XCTAssertEqual(stored?.content, "最终内容")
+        XCTAssertFalse(stored?.isError ?? true)
+    }
+
+    func testMessageStateCoalescesDeltasUntilFlush() {
+        let message = ChatMessage(role: .assistant, content: "")
+        let state = MessageState(message: message)
+        var publishCount = 0
+        let cancellable = state.objectWillChange.sink { publishCount += 1 }
+        _ = cancellable
+
+        state.appendContent("你")
+        state.appendContent("好")
+        state.appendReasoning("深")
+        state.appendReasoning("思")
+
+        XCTAssertEqual(state.content, "", "聚合前不应发布到 UI")
+        // 第一个分片触发一次 isStreaming 标记（一次性，后续分片不再发布）。
+        XCTAssertEqual(publishCount, 1, "分片只进缓冲，仅流式标记发布一次")
+
+        state.flushPending()
+        XCTAssertEqual(state.content, "你好")
+        XCTAssertEqual(state.reasoning, "深思")
+        // content 与 reasoning 两个 @Published 字段各触发一次；
+        // 同一 runloop 内 SwiftUI 会合并为一次视图更新。
+        XCTAssertEqual(publishCount, 3, "发布 = 流式标记 1 次 + flush 字段 2 次")
+        XCTAssertFalse(state.hasPendingChanges)
+    }
+
+    func testMessageStateErrorDiscardsPendingDeltas() {
+        let message = ChatMessage(role: .assistant, content: "")
+        let state = MessageState(message: message)
+        state.appendContent("部分内容")
+        state.setError("出错了")
+
+        XCTAssertEqual(state.content, "出错了")
+        XCTAssertTrue(state.isError)
+
+        state.flushPending()
+        XCTAssertEqual(state.content, "出错了", "flush 不应把已丢弃的增量加回")
+    }
+
+    func testMessageStateTracksStreamingLifecycle() {
+        let message = ChatMessage(role: .assistant, content: "")
+        let state = MessageState(message: message)
+        XCTAssertFalse(state.isStreaming)
+
+        state.appendContent("a")
+        XCTAssertTrue(state.isStreaming, "收到分片后应标记为流式")
+        state.appendReasoning("r")
+        XCTAssertTrue(state.isStreaming)
+
+        state.flushPending()
+        XCTAssertTrue(state.isStreaming, "聚合 flush 不结束流式")
+
+        state.markStreamEnded()
+        XCTAssertFalse(state.isStreaming, "结束标记后恢复非流式渲染")
+    }
+
     // MARK: - history
 
     func testHistoryFiltersEmptyContentAndMapsRoles() {
@@ -161,10 +276,12 @@ final class SessionStoreTests: XCTestCase {
         )
 
         let storeB = makeStore()
-        XCTAssertEqual(storeB.sessions, storeA.sessions)
-        XCTAssertEqual(storeB.sessions.count, 1)
-        XCTAssertEqual(storeB.sessions[0].messages.count, 2)
-        XCTAssertEqual(storeB.sessions[0].messages[1].reasoning, "r")
+        let loaded = storeB.sessions
+        XCTAssertEqual(loaded.count, 1)
+        XCTAssertEqual(loaded[0].title, "持久化")
+        XCTAssertEqual(loaded[0].messages.map(\.content), ["你好", "世界"])
+        XCTAssertEqual(loaded[0].messages.map(\.reasoning), [nil, "r"])
+        XCTAssertEqual(loaded[0].messages.map(\.role), [.user, .assistant])
     }
 
     func testCorruptedSessionsFileLeadsToEmpty() throws {
@@ -173,7 +290,7 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertTrue(store.sessions.isEmpty)
     }
 
-    func testMigrationFallbackWhenSessionsMissing() throws {
+    func testLegacyStateMigratesIntoSQLite() throws {
         let state: [String: Any] = [
             "deepseek-chat.sessions.v1": [[
                 "id": UUID().uuidString,
@@ -189,8 +306,8 @@ final class SessionStoreTests: XCTestCase {
         let store = makeStore()
         XCTAssertEqual(store.sessions.count, 1)
         XCTAssertEqual(store.sessions[0].title, "旧会话")
-        // 迁移后立即写出新文件
-        XCTAssertTrue(FileManager.default.fileExists(atPath: tempDir.appendingPathComponent("sessions.json").path))
+        // 迁移后数据进入 SQLite
+        XCTAssertTrue(FileManager.default.fileExists(atPath: tempDir.appendingPathComponent("sessions.sqlite").path))
     }
 
     func testSessionsFileTakesPrecedenceOverMigration() throws {
@@ -217,5 +334,80 @@ final class SessionStoreTests: XCTestCase {
 
         let store = makeStore()
         XCTAssertEqual(store.sessions.map(\.title), ["新版会话"])
+    }
+
+    func testMessagesPersistInOrderAcrossInstances() {
+        let storeA = makeStore()
+        let session = storeA.createSession()
+        storeA.appendMessage(sessionID: session.id, ChatMessage(role: .user, content: "1"))
+        storeA.appendMessage(sessionID: session.id, ChatMessage(role: .assistant, content: "2"))
+        storeA.appendMessage(sessionID: session.id, ChatMessage(role: .user, content: "3"))
+
+        let storeB = makeStore()
+        XCTAssertEqual(storeB.session(id: session.id)?.messages.map(\.content), ["1", "2", "3"])
+    }
+
+    func testDeleteSessionRemovesMessagesFromDatabase() {
+        let storeA = makeStore()
+        let session = storeA.createSession()
+        storeA.appendMessage(sessionID: session.id, ChatMessage(role: .user, content: "x"))
+        storeA.appendMessage(sessionID: session.id, ChatMessage(role: .assistant, content: "y"))
+        storeA.deleteSession(id: session.id)
+
+        let storeB = makeStore()
+        XCTAssertTrue(storeB.sessions.isEmpty)
+    }
+
+    func testSyncMessagePersistsToDatabaseAcrossInstances() {
+        let storeA = makeStore()
+        let session = storeA.createSession()
+        let message = ChatMessage(role: .assistant, content: "")
+        storeA.appendMessage(sessionID: session.id, message)
+        let state = storeA.messageState(for: message)
+
+        state.appendContent("流式")
+        state.appendReasoning("推理")
+        state.flushPending()
+        storeA.syncMessage(state, sessionID: session.id)
+
+        let storeB = makeStore()
+        XCTAssertEqual(storeB.session(id: session.id)?.messages[0].content, "流式")
+        XCTAssertEqual(storeB.session(id: session.id)?.messages[0].reasoning, "推理")
+    }
+
+    /// 模拟「一轮完整对话 + 再次发送」：验证会话与消息在内存和 SQLite 中保持一致。
+    func testTwoConversationCyclesRemainConsistent() {
+        let store = makeStore()
+        let session = store.createSession()
+
+        // 第一轮：用户提问 + 助手流式回答 + 结束
+        let u1 = ChatMessage(role: .user, content: "第一问")
+        let a1 = ChatMessage(role: .assistant, content: "")
+        store.appendMessage(sessionID: session.id, u1)
+        store.appendMessage(sessionID: session.id, a1)
+        let s1 = store.messageState(for: a1)
+        s1.appendContent("回答一")
+        s1.flushPending()
+        store.commitMessage(s1, sessionID: session.id)
+
+        // 第二轮：再次发送
+        let u2 = ChatMessage(role: .user, content: "第二问")
+        let a2 = ChatMessage(role: .assistant, content: "")
+        store.appendMessage(sessionID: session.id, u2)
+        store.appendMessage(sessionID: session.id, a2)
+        let s2 = store.messageState(for: a2)
+        s2.appendContent("回答二")
+        s2.flushPending()
+        store.commitMessage(s2, sessionID: session.id)
+
+        let expected = ["第一问", "回答一", "第二问", "回答二"]
+        XCTAssertEqual(store.session(id: session.id)?.messages.count, 4)
+        XCTAssertEqual(store.session(id: session.id)?.messages.map(\.content), expected)
+        // 消息状态对象互不串用
+        XCTAssertFalse(s1 === s2)
+
+        // 重新加载后仍然一致（顺序由 position 列保证）
+        let storeB = makeStore()
+        XCTAssertEqual(storeB.session(id: session.id)?.messages.map(\.content), expected)
     }
 }

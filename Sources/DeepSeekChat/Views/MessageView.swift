@@ -1,22 +1,32 @@
 import SwiftUI
 
 struct MessageView: View {
-    let message: ChatMessage
+    @ObservedObject var state: MessageState
     let isStreaming: Bool
+
+    /// 单条消息超过该字数时默认截断显示（避免超长 Text 全文排版卡顿），可展开。
+    private static let longMessageLimit = 20_000
+    @State private var expanded = false
+
+    /// 行内实际流式状态：外部标记或消息自身标记任一为真即按流式渲染。
+    /// 外部状态可能被旧任务收尾误清，消息自身标记保证长输出仍走节流实时路径。
+    private var effectiveStreaming: Bool {
+        isStreaming || state.isStreaming
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            if message.role == .user {
+            if state.role == .user {
                 Spacer(minLength: 48)
             } else {
                 avatar
             }
 
-            VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
-                if let reasoning = message.reasoning, !reasoning.isEmpty {
+            VStack(alignment: state.role == .user ? .trailing : .leading, spacing: 6) {
+                if let reasoning = state.reasoning, !reasoning.isEmpty {
                     reasoningGroup(reasoning)
                 }
-                if message.isSearching {
+                if state.isSearching {
                     HStack(spacing: 6) {
                         ProgressView()
                             .controlSize(.small)
@@ -26,16 +36,16 @@ struct MessageView: View {
                     .foregroundStyle(.tint)
                 }
                 contentView
-                if let sources = message.sources, !sources.isEmpty {
+                if let sources = state.sources, !sources.isEmpty {
                     sourcesView(sources)
                 }
             }
             .padding(10)
-            .frame(maxWidth: 720, alignment: message.role == .user ? .trailing : .leading)
+            .frame(maxWidth: 720, alignment: state.role == .user ? .trailing : .leading)
             .background(
                 RoundedRectangle(cornerRadius: 10)
                     .fill(
-                        message.role == .user
+                        state.role == .user
                             ? Color.accentColor.opacity(0.85)
                             : Color(nsColor: .controlBackgroundColor)
                     )
@@ -45,7 +55,7 @@ struct MessageView: View {
                     .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
             )
 
-            if message.role == .assistant {
+            if state.role == .assistant {
                 Spacer(minLength: 48)
             }
         }
@@ -69,23 +79,44 @@ struct MessageView: View {
 
     @ViewBuilder
     private var contentView: some View {
-        if message.isError {
-            Text(message.content)
+        if state.isError {
+            Text(state.content)
                 .font(.callout)
                 .foregroundStyle(.red)
                 .textSelection(.enabled)
-        } else if !message.content.isEmpty {
-            if message.role == .user {
-                Text(message.content)
+        } else if !state.content.isEmpty {
+            if state.role == .user {
+                Text(state.content)
                     .font(.callout)
                     .foregroundStyle(.white)
                     .textSelection(.enabled)
             } else {
-                MarkdownText(text: message.content)
+                assistantContent
             }
-        } else if isStreaming && !message.isSearching {
+        } else if effectiveStreaming && !state.isSearching {
             ProgressView()
                 .controlSize(.small)
+        }
+    }
+
+    private var assistantContent: some View {
+        let total = state.content.count
+        let truncated = total > Self.longMessageLimit && !expanded
+        let displayText = truncated
+            ? String(state.content.prefix(Self.longMessageLimit))
+            : state.content
+        return VStack(alignment: .leading, spacing: 6) {
+            MarkdownText(text: displayText, isStreaming: effectiveStreaming)
+            if truncated {
+                Button {
+                    expanded = true
+                } label: {
+                    Text("展开全部 · 共 \(total) 字")
+                        .font(.caption)
+                        .foregroundStyle(.tint)
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
@@ -114,12 +145,18 @@ struct MessageView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             ForEach(sources) { source in
-                Link(
-                    source.title?.isEmpty == false ? source.title! : source.url,
-                    destination: URL(string: source.url)!
-                )
-                .font(.caption)
-                .lineLimit(1)
+                if let url = URL(string: source.url) {
+                    Link(
+                        source.title?.isEmpty == false ? source.title! : source.url,
+                        destination: url
+                    )
+                    .font(.caption)
+                    .lineLimit(1)
+                } else {
+                    Text(source.title?.isEmpty == false ? source.title! : source.url)
+                        .font(.caption)
+                        .lineLimit(1)
+                }
             }
         }
         .padding(.top, 6)

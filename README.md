@@ -2,7 +2,8 @@
 
 > **AI 项目**：一个完全由 DeepSeek 大模型驱动的原生 macOS 菜单栏聊天应用。
 >
-> 当前版本：**Beta 0.1** · 纯 Swift / SwiftUI 实现，无 Web 框架、无 WebView、无运行时服务进程。
+> 当前版本：**Beta 0.2** · 纯 Swift / SwiftUI 实现，无 Web 框架、无 WebView、无运行时服务进程。
+> 版本更迭与开发经验见 [CHANGELOG.md](CHANGELOG.md)。
 
 点击菜单栏图标即可呼出聊天面板，随时问 AI、联网搜索、管理多个会话——像系统自带工具一样轻快。
 
