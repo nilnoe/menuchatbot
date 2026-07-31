@@ -160,9 +160,8 @@ struct SidebarView: View {
             onDelete: { deleteSession(session) }
         )
         .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.12)) {
-                hoveredSessionID = hovering ? session.id : nil
-            }
+            // 即时切换（不做淡入动画）：快捷按钮「点了就有」，避免感知延迟。
+            hoveredSessionID = hovering ? session.id : nil
         }
         .contextMenu {
             Button(session.isPinned ? "取消置顶" : "置顶") {
@@ -209,6 +208,13 @@ struct SidebarSessionRow: View {
     let onRename: () -> Void
     let onDelete: () -> Void
 
+    /// 选中行常显快捷按钮（无需悬停即可置顶 / 重命名 / 删除），
+    /// 其他行 hover 时显示——保证操作可发现、可点击。
+    /// （internal 便于单测锁定该 UX 规则。）
+    var showsQuickActions: Bool {
+        isHovered || isSelected
+    }
+
     var body: some View {
         ZStack(alignment: .trailing) {
             Button(action: onSelect) {
@@ -246,7 +252,8 @@ struct SidebarSessionRow: View {
                     // （0.2.2 曾用 44pt 估算，小于三按钮实际宽度导致重叠。）
                     .padding(
                         .trailing,
-                        isHovered ? DesignTokens.Sidebar.quickActionsReservedWidth : 0
+                        showsQuickActions
+                            ? DesignTokens.Sidebar.quickActionsReservedWidth : 0
                     )
                 }
                 .padding(8)
@@ -257,7 +264,7 @@ struct SidebarSessionRow: View {
             }
             .buttonStyle(.plain)
 
-            if isHovered {
+            if showsQuickActions {
                 HStack(spacing: DesignTokens.Sidebar.quickActionSpacing) {
                     quickActionButton(
                         systemImage: session.isPinned ? "pin.slash" : "pin",
@@ -277,7 +284,6 @@ struct SidebarSessionRow: View {
                     )
                 }
                 .padding(.trailing, DesignTokens.Sidebar.quickActionsTrailingPadding)
-                .transition(.opacity)
             }
         }
     }

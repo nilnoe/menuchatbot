@@ -168,4 +168,39 @@ final class SidebarRowLayoutTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.1))
         XCTAssertNotNil(window.contentView)
     }
+
+    // MARK: - 快捷操作可见性规则（选中行常显 / hover 显示）
+
+    private func makeRow(isSelected: Bool, isHovered: Bool) -> SidebarSessionRow {
+        let session = ChatSession(
+            id: UUID(),
+            title: "测试会话",
+            messages: [],
+            createdAt: Date(),
+            updatedAt: Date(),
+            isPinned: true
+        )
+        return SidebarSessionRow(
+            session: session,
+            isSelected: isSelected,
+            isHovered: isHovered,
+            onSelect: {},
+            onTogglePin: {},
+            onRename: {},
+            onDelete: {}
+        )
+    }
+
+    func testQuickActionsShownWhenHovered() {
+        XCTAssertTrue(makeRow(isSelected: false, isHovered: true).showsQuickActions)
+    }
+
+    /// 选中行无需 hover 也显示快捷按钮：保证置顶 / 重命名 / 删除可发现。
+    func testQuickActionsShownWhenSelectedWithoutHover() {
+        XCTAssertTrue(makeRow(isSelected: true, isHovered: false).showsQuickActions)
+    }
+
+    func testQuickActionsHiddenForUnselectedUnhoveredRow() {
+        XCTAssertFalse(makeRow(isSelected: false, isHovered: false).showsQuickActions)
+    }
 }
