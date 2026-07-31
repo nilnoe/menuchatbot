@@ -17,13 +17,6 @@ private struct ChatContentHeightKey: PreferenceKey {
     }
 }
 
-private struct ChatViewportHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 struct ChatView: View {
     @EnvironmentObject var sessionStore: SessionStore
     @EnvironmentObject var settings: SettingsStore
@@ -122,110 +115,110 @@ struct ChatView: View {
     // MARK: - 消息区
 
     private var messagesArea: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                GeometryReader { geo in
-                    Color.clear.preference(
-                        key: ChatTopOffsetKey.self,
-                        value: geo.frame(in: .named("chatScroll")).minY
-                    )
-                }
-                .frame(height: 0)
-
-                if let session, !session.messages.isEmpty {
-                    // 倒置聊天列表（聊天类应用的业界标准做法）：
-                    // 消息按倒序渲染，容器与每行各旋转 180°（双重旋转，文本与
-                    // 选区恢复正向）。新消息出现在视觉底部，贴底时只需滚动到
-                    // 最新一条——它就在视口旁边、必然已物化，绕开了
-                    // “LazyVStack 程序化滚动到未物化区域 → 空白”的已知缺陷，
-                    // 同时保持 LazyVStack 懒加载（不引入 VStack 全量布局的卡顿）。
-                    LazyVStack(spacing: 10) {
-                        ForEach(session.messages.reversed()) { message in
-                            let canRetry =
-                                message.isError
-                                && message.id == session.messages.last?.id
-                            MessageView(
-                                state: sessionStore.messageState(for: message),
-                                isStreaming: message.id == streamingMessageID,
-                                modelLabel: settings.modelInfo(for: settings.model).shortName,
-                                modelInfo: settings.modelInfo(for: settings.model),
-                                onRetry: canRetry
-                                    ? { controller.retryLastExchange(in: session.id) } : nil
-                            )
-                            .rotationEffect(.degrees(180))
-                        }
+        // 用 GeometryReader 包裹测量真实视口尺寸（ScrollView 自身
+        // `.background(GeometryReader)` 实测回报 0×0，preference 拿不到尺寸）。
+        GeometryReader { geo in
+            let columnWidth = geo.size.width * DesignTokens.messageColumnRatio
+            let viewportH = geo.size.height
+            return ScrollViewReader { proxy in
+                ScrollView {
+                    GeometryReader { geo in
+                        Color.clear.preference(
+                            key: ChatTopOffsetKey.self,
+                            value: geo.frame(in: .named("chatScroll")).minY
+                        )
                     }
-                    .padding(.vertical, 10)
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear.preference(
-                                key: ChatContentHeightKey.self,
-                                value: geo.size.height
-                            )
+                    .frame(height: 0)
+
+                    if let session, !session.messages.isEmpty {
+                        // 倒置聊天列表（聊天类应用的业界标准做法）：
+                        // 消息按倒序渲染，容器与每行各旋转 180°（双重旋转，文本与
+                        // 选区恢复正向）。新消息出现在视觉底部，贴底时只需滚动到
+                        // 最新一条——它就在视口旁边、必然已物化，绕开了
+                        // “LazyVStack 程序化滚动到未物化区域 → 空白”的已知缺陷，
+                        // 同时保持 LazyVStack 懒加载（不引入 VStack 全量布局的卡顿）。
+                        LazyVStack(spacing: 10) {
+                            ForEach(session.messages.reversed()) { message in
+                                let canRetry =
+                                    message.isError
+                                    && message.id == session.messages.last?.id
+                                MessageView(
+                                    state: sessionStore.messageState(for: message),
+                                    isStreaming: message.id == streamingMessageID,
+                                    modelLabel: settings.modelInfo(for: settings.model).shortName,
+                                    modelInfo: settings.modelInfo(for: settings.model),
+                                    columnWidth: columnWidth,
+                                    onRetry: canRetry
+                                        ? { controller.retryLastExchange(in: session.id) } : nil
+                                )
+                                .rotationEffect(.degrees(180))
+                            }
                         }
-                    )
-                    .frame(maxWidth: DesignTokens.messageMaxWidth)
-                    .frame(maxWidth: .infinity)
-                    // 短会话顶置：旋转前把内容对齐到最小高度框的底部，
-                    // 旋转 180° 后正好落在视觉顶部（新消息仍在底部逐条向下增长）。
-                    // 内容超过视口后 minHeight 失效，行为与原来一致（贴底跟随）。
-                    .frame(minHeight: viewportHeight, alignment: .bottom)
-                    .rotationEffect(.degrees(180))
-                } else {
-                    emptyState
+                        .padding(.vertical, 10)
+                        .background(
+                            GeometryReader { inner in
+                                Color.clear.preference(
+                                    key: ChatContentHeightKey.self,
+                                    value: inner.size.height
+                                )
+                            }
+                        )
+                        .frame(maxWidth: columnWidth)
                         .frame(maxWidth: .infinity)
-                        // 空状态在消息区视口内垂直居中：用视口高度做 minHeight，
-                        // 窗口高度变化时实时重新居中（不再用固定 80pt 粗略下移）。
-                        .frame(minHeight: viewportHeight, alignment: .center)
+                        // 短会话顶置：旋转前把内容对齐到最小高度框的底部，
+                        // 旋转 180° 后正好落在视觉顶部（新消息仍在底部逐条向下增长）。
+                        // 内容超过视口后 minHeight 失效，行为与原来一致（贴底跟随）。
+                        .frame(minHeight: viewportH, alignment: .bottom)
+                        .rotationEffect(.degrees(180))
+                    } else {
+                        emptyState
+                            .frame(maxWidth: .infinity)
+                            // 空状态在消息区视口内垂直居中：用视口高度做 minHeight，
+                            // 窗口高度变化时实时重新居中（不再用固定 80pt 粗略下移）。
+                            .frame(minHeight: viewportH, alignment: .center)
+                    }
                 }
-            }
-            .coordinateSpace(name: "chatScroll")
-            .defaultScrollAnchor(.bottom)
-            // 倒置列表下滚动条会镜像到另一侧、拖动方向相反，隐藏它更贴近
-            // 聊天应用惯例（Messages 等也常隐藏）；滚动仍可用触控板/滚轮。
-            .scrollIndicators(.hidden)
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(
-                        key: ChatViewportHeightKey.self,
-                        value: geo.size.height
-                    )
+                .coordinateSpace(name: "chatScroll")
+                .defaultScrollAnchor(.bottom)
+                // 倒置列表下滚动条会镜像到另一侧、拖动方向相反，隐藏它更贴近
+                // 聊天应用惯例（Messages 等也常隐藏）；滚动仍可用触控板/滚轮。
+                .scrollIndicators(.hidden)
+                .onPreferenceChange(ChatTopOffsetKey.self) {
+                    topOffset = $0
+                    scheduleStickToBottomUpdate()
                 }
-            )
-            .onPreferenceChange(ChatTopOffsetKey.self) {
-                topOffset = $0
-                scheduleStickToBottomUpdate()
-            }
-            .onPreferenceChange(ChatContentHeightKey.self) {
-                contentHeight = $0
-                scheduleStickToBottomUpdate()
-            }
-            .onPreferenceChange(ChatViewportHeightKey.self) {
-                viewportHeight = $0
-            }
-            .onAppear {
-                scrollToBottom(proxy)
-            }
-            .onChange(of: selectedID) { _, _ in
-                stickToBottom = true
-                scrollToBottom(proxy)
-            }
-            .onChange(of: session?.messages.count) { _, _ in
-                if stickToBottom {
+                .onPreferenceChange(ChatContentHeightKey.self) {
+                    contentHeight = $0
+                    scheduleStickToBottomUpdate()
+                }
+                .onAppear {
+                    viewportHeight = viewportH
                     scrollToBottom(proxy)
                 }
-            }
-            .onChange(of: streamingMessageID) { _, newValue in
-                guard controller.streamingSessionID == session?.id else { return }
-                if newValue != nil {
+                .onChange(of: selectedID) { _, _ in
                     stickToBottom = true
                     scrollToBottom(proxy)
-                } else if stickToBottom {
-                    scrollToBottom(proxy)
+                }
+                .onChange(of: session?.messages.count) { _, _ in
+                    if stickToBottom {
+                        scrollToBottom(proxy)
+                    }
+                }
+                .onChange(of: streamingMessageID) { _, newValue in
+                    guard controller.streamingSessionID == session?.id else { return }
+                    if newValue != nil {
+                        stickToBottom = true
+                        scrollToBottom(proxy)
+                    } else if stickToBottom {
+                        scrollToBottom(proxy)
+                    }
+                }
+                .onReceive(streamingTick) { _ in
+                    handleStreamingScroll(proxy)
                 }
             }
-            .onReceive(streamingTick) { _ in
-                handleStreamingScroll(proxy)
+            .onChange(of: geo.size) { _, size in
+                viewportHeight = size.height
             }
         }
     }

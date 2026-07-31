@@ -18,57 +18,43 @@ final class EmptyStateCenteringTests: XCTestCase {
         }
     }
 
-    private struct ViewportKey: PreferenceKey {
-        static var defaultValue: CGFloat = 0
-        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-            value = nextValue()
-        }
-    }
-
     private struct EmptyProbe: View {
         let viewport: CGFloat
-        @State private var measuredViewport: CGFloat = 0
-        @State private var contentCenter: CGFloat = -1
 
         var body: some View {
-            ScrollView {
-                VStack(spacing: 8) {
-                    Image(systemName: "bubble.left.and.bubble.right.fill")
-                        .font(.system(size: 36))
-                    Text("DeepSeek Chat")
-                        .font(.title2)
-                    Text("开始一段新的对话")
-                        .font(.callout)
-                }
-                // 与 ChatView emptyState 相同的居中策略：
-                // 用视口高度做 minHeight，alignment: .center 让内容随窗口高度居中。
-                .background(
-                    GeometryReader { geo in
-                        Color.clear.preference(
-                            key: CenterKey.self,
-                            value: geo.frame(in: .named("emptyProbe")).midY
-                        )
+            // 与 ChatView.messagesArea 相同的结构：GeometryReader 包裹提供
+            // 真实视口尺寸（ScrollView 自身 background 测不到，见 ChatView 注释）。
+            GeometryReader { geo in
+                let viewportHeight = geo.size.height
+                return ScrollView {
+                    VStack(spacing: 8) {
+                        Image(systemName: "bubble.left.and.bubble.right.fill")
+                            .font(.system(size: 36))
+                        Text("DeepSeek Chat")
+                            .font(.title2)
+                        Text("开始一段新的对话")
+                            .font(.callout)
                     }
-                )
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: measuredViewport, alignment: .center)
-            }
-            .coordinateSpace(name: "emptyProbe")
-            .frame(width: 400, height: viewport)
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(
-                        key: ViewportKey.self,
-                        value: geo.size.height
+                    // 与 ChatView emptyState 相同的居中策略：
+                    // 用视口高度做 minHeight，alignment: .center 让内容随窗口高度居中。
+                    .background(
+                        GeometryReader { inner in
+                            Color.clear.preference(
+                                key: CenterKey.self,
+                                value: inner.frame(in: .named("emptyProbe")).midY
+                            )
+                        }
                     )
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: viewportHeight, alignment: .center)
                 }
-            )
-            .onPreferenceChange(ViewportKey.self) { measuredViewport = $0 }
-            .onPreferenceChange(CenterKey.self) { contentCenter = $0 }
+                .coordinateSpace(name: "emptyProbe")
+            }
+            .frame(width: 400, height: viewport)
         }
     }
 
-    private func measure(viewport: CGFloat) -> (center: CGFloat, viewport: CGFloat) {
+    private func measure(viewport: CGFloat) -> CGFloat {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: viewport),
             styleMask: [.borderless],
@@ -76,10 +62,8 @@ final class EmptyStateCenteringTests: XCTestCase {
             defer: false
         )
         var center: CGFloat = -1
-        var measuredViewport: CGFloat = 0
         let probe = EmptyProbe(viewport: viewport)
             .onPreferenceChange(CenterKey.self) { center = $0 }
-            .onPreferenceChange(ViewportKey.self) { measuredViewport = $0 }
         let hosting = NSHostingView(
             rootView: AnyView(probe)
         )
@@ -88,18 +72,16 @@ final class EmptyStateCenteringTests: XCTestCase {
         hosting.layoutSubtreeIfNeeded()
         RunLoop.main.run(until: Date().addingTimeInterval(0.15))
         hosting.layoutSubtreeIfNeeded()
-        return (center, measuredViewport)
+        return center
     }
 
     func testEmptyStateCenteredInSmallViewport() {
-        let result = measure(viewport: 300)
-        XCTAssertEqual(result.viewport, 300, accuracy: 1)
-        XCTAssertEqual(result.center, result.viewport / 2, accuracy: 10)
+        let center = measure(viewport: 300)
+        XCTAssertEqual(center, 150, accuracy: 10)
     }
 
     func testEmptyStateCenteredInLargeViewport() {
-        let result = measure(viewport: 700)
-        XCTAssertEqual(result.viewport, 700, accuracy: 1)
-        XCTAssertEqual(result.center, result.viewport / 2, accuracy: 10)
+        let center = measure(viewport: 700)
+        XCTAssertEqual(center, 350, accuracy: 10)
     }
 }
