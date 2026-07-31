@@ -13,11 +13,14 @@ struct DeepSeekChatApp {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem!
     private var panel: NSPanel!
     private let sessionStore = SessionStore()
     private let settingsStore = SettingsStore()
+    private lazy var streamController = ChatStreamController(
+        sessionStore: sessionStore, settings: settingsStore)
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMainMenu()
@@ -161,6 +164,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let root = ContentView()
             .environmentObject(sessionStore)
             .environmentObject(settingsStore)
+            .environmentObject(streamController)
         // 统一系统表面风格：不叠加整窗毛玻璃。
         // 参考 ChatGPTUI / Messages 类聊天应用的惯例——系统底色 + 纯色组件，
         // 避免窗口材质与内部组件互相叠加造成风格割裂。
