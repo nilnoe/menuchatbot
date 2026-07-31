@@ -39,6 +39,7 @@ struct SettingsView: View {
                     modelSection
                     providerSection
                     conversationSection
+                    windowSection
                     dataSection
                 }
                 .formStyle(.grouped)
@@ -245,6 +246,19 @@ struct SettingsView: View {
                 }
             }
             Text("导出为 JSON 备份文件，可在本应用或其他设备恢复；导入会追加新会话，不会覆盖现有数据")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var windowSection: some View {
+        Section("窗口") {
+            Picker("窗口大小", selection: $settings.windowSizePreset) {
+                ForEach(WindowSizePreset.allCases) { preset in
+                    Text(preset.label).tag(preset)
+                }
+            }
+            Text("按主屏可见区域比例预设；选择后每次启动按所选档位生效，覆盖手动调整过的旧窗口大小")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

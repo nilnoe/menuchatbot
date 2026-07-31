@@ -30,5 +30,6 @@ enum AppConfiguration {
         static let customProviderEnabled = "customProviderEnabled"
         static let customBaseURL = "customBaseURL"
         static let customModels = "customModels"
+        static let windowSizePreset = "windowSizePreset"
     }
 }

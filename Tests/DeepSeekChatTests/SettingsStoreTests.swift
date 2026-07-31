@@ -69,6 +69,24 @@ final class SettingsStoreTests: XCTestCase {
         )
     }
 
+    func testWindowSizePresetRoundTrip() {
+        let store = makeStore()
+        XCTAssertEqual(store.windowSizePreset, .large, "默认档位与 0.2.x 的 93% 铺满一致")
+        XCTAssertFalse(store.hasChosenWindowSize, "未设置过时保持旧窗口记忆行为")
+
+        store.windowSizePreset = .compact
+        XCTAssertTrue(store.hasChosenWindowSize)
+
+        let reloaded = makeStore()
+        XCTAssertEqual(reloaded.windowSizePreset, .compact)
+        XCTAssertTrue(reloaded.hasChosenWindowSize)
+    }
+
+    func testInvalidWindowSizePresetFallsBackToLarge() {
+        defaults.set("bogus", forKey: "windowSizePreset")
+        XCTAssertEqual(makeStore().windowSizePreset, .large)
+    }
+
     func testCustomProviderDefaultsWhenNothingSaved() {
         let store = makeStore()
         XCTAssertFalse(store.customProviderEnabled)
@@ -150,6 +168,7 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertFalse(store.webSearch)
         XCTAssertEqual(store.systemPrompt, "")
         XCTAssertNil(store.temperature)
+        XCTAssertEqual(store.windowSizePreset, .large)
         XCTAssertEqual(store.apiKey, "")
         XCTAssertFalse(store.keyConfigured)
     }

@@ -27,6 +27,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 参考 ChatGPTUI / Messages 类聊天应用的惯例——系统底色 + 纯色组件，
         // 避免窗口材质与内部组件互相叠加造成风格割裂。
         let hosting = NSHostingController(rootView: root)
-        panelController.install(contentViewController: hosting)
+        panelController.install(contentViewController: hosting, settings: settingsStore)
     }
 }
