@@ -64,12 +64,21 @@ final class SessionStore: ObservableObject {
                 t.column("content", .text).notNull()
                 t.column("reasoning", .text)
                 t.column("sourcesJSON", .text)
+                t.column("usageJSON", .text)
                 t.column("isSearching", .boolean).notNull()
                 t.column("isError", .boolean).notNull()
                 t.column("createdAt", .datetime).notNull()
                 t.column("position", .integer).notNull()
             }
             try db.create(indexOn: "message", columns: ["sessionID", "position"])
+        }
+        // v2：message 表补充 usageJSON 列（旧库升级；新库 v1 建表已含）。
+        migrator.registerMigration("v2") { db in
+            if try !db.columns(in: "message").contains(where: { $0.name == "usageJSON" }) {
+                try db.alter(table: "message") { t in
+                    t.add(column: "usageJSON", .text)
+                }
+            }
         }
         return migrator
     }
@@ -285,6 +294,7 @@ final class SessionStore: ObservableObject {
                         content: message.content,
                         reasoning: message.reasoning,
                         sources: message.sources,
+                        usage: message.usage,
                         isSearching: false,
                         isError: false,
                         createdAt: message.createdAt
@@ -375,6 +385,7 @@ final class SessionStore: ObservableObject {
         sessions[sessionIndex].messages[messageIndex].content = state.content
         sessions[sessionIndex].messages[messageIndex].reasoning = state.reasoning
         sessions[sessionIndex].messages[messageIndex].sources = state.sources
+        sessions[sessionIndex].messages[messageIndex].usage = state.usage
         sessions[sessionIndex].messages[messageIndex].isSearching = state.isSearching
         sessions[sessionIndex].messages[messageIndex].isError = state.isError
         sessions[sessionIndex].updatedAt = Date()
@@ -427,6 +438,9 @@ final class SessionStore: ObservableObject {
             reasoning: message.reasoning,
             sourcesJSON: message.sources.flatMap { sources in
                 (try? JSONEncoder().encode(sources)).flatMap { String(data: $0, encoding: .utf8) }
+            },
+            usageJSON: message.usage.flatMap { usage in
+                (try? JSONEncoder().encode(usage)).flatMap { String(data: $0, encoding: .utf8) }
             },
             isSearching: message.isSearching,
             isError: message.isError,

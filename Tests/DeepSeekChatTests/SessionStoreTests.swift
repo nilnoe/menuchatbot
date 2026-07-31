@@ -1,3 +1,4 @@
+import GRDB
 import XCTest
 
 @testable import DeepSeekChat
@@ -39,6 +40,84 @@ final class SessionStoreTests: XCTestCase {
         let store = makeStore()
         let session = store.createSession()
         XCTAssertEqual(session.title, "新对话")
+    }
+
+    // MARK: - Token 用量持久化
+
+    func testUsagePersistsAcrossReload() {
+        let store = makeStore()
+        let session = store.createSession(title: "用量会话")
+        store.appendMessage(sessionID: session.id, ChatMessage(role: .user, content: "hi"))
+        store.appendMessage(
+            sessionID: session.id,
+            ChatMessage(
+                role: .assistant,
+                content: "answer",
+                usage: TokenUsage(
+                    promptTokens: 30, cachedTokens: 12, completionTokens: 8, totalTokens: 38)
+            )
+        )
+
+        let reloaded = makeStore()
+        let last = reloaded.session(id: session.id)?.messages.last
+        XCTAssertEqual(
+            last?.usage,
+            TokenUsage(promptTokens: 30, cachedTokens: 12, completionTokens: 8, totalTokens: 38)
+        )
+    }
+
+    func testMessagesWithoutUsageStayNil() {
+        let store = makeStore()
+        let session = store.createSession(title: "无用量")
+        store.appendMessage(sessionID: session.id, ChatMessage(role: .user, content: "hi"))
+        store.appendMessage(sessionID: session.id, ChatMessage(role: .assistant, content: "ok"))
+
+        let reloaded = makeStore()
+        XCTAssertNil(reloaded.session(id: session.id)?.messages.last?.usage)
+    }
+
+    func testLegacyDatabaseWithoutUsageColumnUpgrades() throws {
+        // 用旧版 v1 schema（无 usageJSON 列）预建库，再让 SessionStore 跑迁移。
+        let dbURL = tempDir.appendingPathComponent("sessions.sqlite")
+        var legacy = DatabaseMigrator()
+        legacy.registerMigration("v1") { db in
+            try db.create(table: "session") { t in
+                t.column("id", .text).primaryKey()
+                t.column("title", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+            try db.create(table: "message") { t in
+                t.column("id", .text).primaryKey()
+                t.column("sessionID", .text).notNull().references("session", onDelete: .cascade)
+                t.column("role", .text).notNull()
+                t.column("content", .text).notNull()
+                t.column("reasoning", .text)
+                t.column("sourcesJSON", .text)
+                t.column("isSearching", .boolean).notNull()
+                t.column("isError", .boolean).notNull()
+                t.column("createdAt", .datetime).notNull()
+                t.column("position", .integer).notNull()
+            }
+            try db.create(indexOn: "message", columns: ["sessionID", "position"])
+        }
+        let queue = try DatabaseQueue(path: dbURL.path)
+        try legacy.migrate(queue)
+
+        // 旧库升级后应可写用量并跨实例读回。
+        let store = makeStore()
+        let session = store.createSession(title: "升级库")
+        store.appendMessage(
+            sessionID: session.id,
+            ChatMessage(
+                role: .assistant,
+                content: "migrated",
+                usage: TokenUsage(
+                    promptTokens: 5, cachedTokens: 0, completionTokens: 5, totalTokens: 10)
+            )
+        )
+        let reloaded = makeStore()
+        XCTAssertEqual(reloaded.session(id: session.id)?.messages.last?.usage?.totalTokens, 10)
     }
 
     func testRenameSession() {

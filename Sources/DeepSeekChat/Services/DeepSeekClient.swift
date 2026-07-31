@@ -5,6 +5,7 @@ struct StreamCallbacks {
     var onReasoning: (String) -> Void = { _ in }
     var onSearching: () -> Void = {}
     var onSources: ([Source]) -> Void = { _ in }
+    var onUsage: (TokenUsage) -> Void = { _ in }
     var onDone: () -> Void = {}
     var onError: (String) -> Void = { _ in }
 }
@@ -88,6 +89,8 @@ struct DeepSeekClient {
             "model": model,
             "messages": requestMessages.map { ["role": $0.role, "content": $0.content] },
             "stream": true,
+            // 让流式收尾块携带 usage，否则流式请求默认不返回用量统计
+            "stream_options": ["include_usage": true],
         ]
         // 思考开关 / 推理强度是 DeepSeek 专属字段；OpenAI 兼容供应商
         // 不识别这两个参数（会直接报错），自定义模型只发标准字段。

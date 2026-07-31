@@ -9,6 +9,7 @@ final class CallbackRecorder {
     var reasoning: [String] = []
     var searchingCount = 0
     var sources: [[Source]] = []
+    var usages: [TokenUsage] = []
     var doneCount = 0
     var errors: [String] = []
 
@@ -18,6 +19,7 @@ final class CallbackRecorder {
             onReasoning: { [self] in reasoning.append($0) },
             onSearching: { [self] in searchingCount += 1 },
             onSources: { [self] in sources.append($0) },
+            onUsage: { [self] in usages.append($0) },
             onDone: { [self] in doneCount += 1 },
             onError: { [self] in errors.append($0) }
         )

@@ -5,6 +5,8 @@ struct MessageView: View {
     let isStreaming: Bool
     /// assistant 消息的模型短标签（如 "V4 Flash"）。
     var modelLabel: String? = nil
+    /// 当前模型信息（含官方单价）；nil 时用量行不显示费用估算。
+    var modelInfo: ModelInfo? = nil
     /// 错误消息上的重试动作（仅在错误消息是会话末尾时由 ChatView 注入）。
     var onRetry: (() -> Void)? = nil
 
@@ -46,6 +48,9 @@ struct MessageView: View {
                 contentView
                 if let sources = state.sources, !sources.isEmpty {
                     sourcesView(sources)
+                }
+                if state.role == .assistant, let usage = state.usage {
+                    usageLine(usage)
                 }
                 timestamp
             }
@@ -141,6 +146,30 @@ struct MessageView: View {
             .font(.system(size: DesignTokens.FontSize.caption - 1))
             .foregroundStyle(.tertiary)
             .padding(.top, 2)
+    }
+
+    private func usageLine(_ usage: TokenUsage) -> some View {
+        var text =
+            "输入 \(TokenUsage.compact(usage.promptTokens)) · 输出 \(TokenUsage.compact(usage.completionTokens))"
+        if let modelInfo,
+            let inputPrice = modelInfo.inputPricePerMillion,
+            let outputPrice = modelInfo.outputPricePerMillion
+        {
+            let cost = usage.estimatedCost(
+                inputPricePerMillion: inputPrice,
+                cachedInputPricePerMillion: modelInfo.cachedInputPricePerMillion,
+                outputPricePerMillion: outputPrice
+            )
+            text += " · ≈$\(String(format: "%.4f", cost))"
+        }
+        return HStack(spacing: 4) {
+            Image(systemName: "chart.bar")
+                .font(.system(size: 9))
+            Text(text)
+        }
+        .font(.system(size: DesignTokens.FontSize.caption - 1))
+        .foregroundStyle(.tertiary)
+        .padding(.top, 2)
     }
 
     @ViewBuilder

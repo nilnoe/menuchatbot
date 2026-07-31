@@ -149,6 +149,32 @@ final class ChatStreamControllerTests: XCTestCase {
         XCTAssertFalse(last.isSearching, "自定义模型不触发搜索状态")
     }
 
+    // MARK: - Token 用量
+
+    func testStreamUsagePersistedToMessage() async throws {
+        let session = store.createSession(title: "用量会话")
+        let controller = makeController { [self] request in
+            (
+                httpResponse(request, status: 200),
+                [
+                    "data: {\"choices\":[{\"delta\":{\"content\":\"答\"}}]}\n\n",
+                    "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":42,\"completion_tokens\":7,\"total_tokens\":49,\"prompt_cache_hit_tokens\":20}}\n\n",
+                    "data: [DONE]\n\n",
+                ],
+                0.02
+            )
+        }
+
+        controller.beginAssistantReply(sessionID: session.id)
+        try await waitFor { controller.streamingSessionID == nil }
+
+        let last = try XCTUnwrap(store.session(id: session.id)?.messages.last)
+        XCTAssertEqual(
+            last.usage,
+            TokenUsage(promptTokens: 42, cachedTokens: 20, completionTokens: 7, totalTokens: 49)
+        )
+    }
+
     // MARK: - 重试
 
     func testRetryRemovesErrorMessageAndRestarts() async throws {

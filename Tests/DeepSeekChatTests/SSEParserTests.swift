@@ -100,6 +100,47 @@ final class SSEParserTests: XCTestCase {
         XCTAssertFalse(finished)
     }
 
+    func testChatUsageInFinalChunk() {
+        let recorder = CallbackRecorder()
+        SSEParser.process(
+            [
+                "choices": [],
+                "usage": [
+                    "prompt_tokens": 120,
+                    "completion_tokens": 34,
+                    "total_tokens": 154,
+                    "prompt_cache_hit_tokens": 100,
+                ],
+            ],
+            kind: .chat,
+            callbacks: recorder.callbacks
+        )
+        XCTAssertEqual(
+            recorder.usages,
+            [
+                TokenUsage(
+                    promptTokens: 120,
+                    cachedTokens: 100,
+                    completionTokens: 34,
+                    totalTokens: 154
+                )
+            ]
+        )
+    }
+
+    func testChatUsageMissingFieldsDefaultsToZero() {
+        let recorder = CallbackRecorder()
+        SSEParser.process(
+            ["choices": [], "usage": ["completion_tokens": 5]],
+            kind: .chat,
+            callbacks: recorder.callbacks
+        )
+        XCTAssertEqual(
+            recorder.usages,
+            [TokenUsage(promptTokens: 0, cachedTokens: 0, completionTokens: 5, totalTokens: 0)]
+        )
+    }
+
     // MARK: - responses 事件
 
     func testResponsesOutputDelta() {
@@ -185,6 +226,37 @@ final class SSEParserTests: XCTestCase {
         )
         XCTAssertTrue(finished)
         XCTAssertEqual(recorder.doneCount, 1)
+    }
+
+    func testResponsesCompletedCarriesUsage() {
+        let recorder = CallbackRecorder()
+        SSEParser.process(
+            [
+                "type": "response.completed",
+                "response": [
+                    "usage": [
+                        "input_tokens": 88,
+                        "output_tokens": 22,
+                        "total_tokens": 110,
+                        "input_tokens_details": ["cached_tokens": 60],
+                    ]
+                ],
+            ],
+            kind: .responses,
+            callbacks: recorder.callbacks
+        )
+        XCTAssertEqual(recorder.doneCount, 1)
+        XCTAssertEqual(
+            recorder.usages,
+            [
+                TokenUsage(
+                    promptTokens: 88,
+                    cachedTokens: 60,
+                    completionTokens: 22,
+                    totalTokens: 110
+                )
+            ]
+        )
     }
 
     func testResponsesIncompleteIsTerminal() {

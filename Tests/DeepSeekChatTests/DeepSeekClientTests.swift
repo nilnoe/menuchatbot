@@ -81,6 +81,11 @@ final class DeepSeekClientTests: XCTestCase {
             )
             XCTAssertEqual(json["model"] as? String, "deepseek-v4-flash")
             XCTAssertEqual(json["stream"] as? Bool, true)
+            XCTAssertEqual(
+                (json["stream_options"] as? [String: Any])?["include_usage"] as? Bool,
+                true,
+                "流式请求应携带 include_usage 以获取 token 用量"
+            )
             XCTAssertEqual((json["thinking"] as? [String: Any])?["type"] as? String, "enabled")
             XCTAssertEqual(json["reasoning_effort"] as? String, "high")
             let messages = json["messages"] as? [[String: Any]]
@@ -455,5 +460,59 @@ final class DeepSeekClientTests: XCTestCase {
 
         XCTAssertEqual(recorder.deltas, ["partial"])
         XCTAssertEqual(recorder.doneCount, 1)
+    }
+
+    @MainActor
+    func testChatCompletionsFinalChunkUsageCallback() async throws {
+        let sse =
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\n"
+            + "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":5,\"total_tokens\":17,\"prompt_cache_hit_tokens\":8}}\n\n"
+            + "data: [DONE]\n\n"
+        MockURLProtocol.handler = { [self] request in
+            (httpResponse(request, status: 200), Data(sse.utf8))
+        }
+
+        let recorder = CallbackRecorder()
+        let client = DeepSeekClient(apiKey: "sk-test", session: makeMockURLSession())
+        try await client.chatCompletions(
+            model: "deepseek-v4-flash",
+            messages: [APIMessage(role: "user", content: "hi")],
+            thinking: true,
+            effort: .high,
+            callbacks: recorder.callbacks
+        )
+
+        XCTAssertEqual(recorder.deltas, ["Hello"])
+        XCTAssertEqual(
+            recorder.usages,
+            [TokenUsage(promptTokens: 12, cachedTokens: 8, completionTokens: 5, totalTokens: 17)]
+        )
+    }
+
+    @MainActor
+    func testResponsesCompletedUsageCallback() async throws {
+        let sse =
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"answer\"}\n\n"
+            + "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":30,\"output_tokens\":7,\"total_tokens\":37,\"input_tokens_details\":{\"cached_tokens\":20}}}}\n\n"
+        MockURLProtocol.handler = { [self] request in
+            (httpResponse(request, status: 200), Data(sse.utf8))
+        }
+
+        let recorder = CallbackRecorder()
+        let client = DeepSeekClient(apiKey: "sk-test", session: makeMockURLSession())
+        try await client.responses(
+            model: "deepseek-v4-flash",
+            input: [APIMessage(role: "user", content: "hi")],
+            thinking: true,
+            effort: .high,
+            webSearch: false,
+            callbacks: recorder.callbacks
+        )
+
+        XCTAssertEqual(recorder.deltas, ["answer"])
+        XCTAssertEqual(
+            recorder.usages,
+            [TokenUsage(promptTokens: 30, cachedTokens: 20, completionTokens: 7, totalTokens: 37)]
+        )
     }
 }

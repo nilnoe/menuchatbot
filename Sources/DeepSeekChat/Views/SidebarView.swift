@@ -161,6 +161,9 @@ struct SidebarView: View {
                         HStack(spacing: 6) {
                             Text(relativeDate(session.updatedAt))
                             Text("\(session.messages.count) 条")
+                            if let totalTokens = sessionTotalTokens(session) {
+                                Text("· \(TokenUsage.compact(totalTokens)) tokens")
+                            }
                         }
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -228,6 +231,11 @@ struct SidebarView: View {
             return "globe"
         }
         return "bubble.left"
+    }
+
+    private func sessionTotalTokens(_ session: ChatSession) -> Int? {
+        let total = session.messages.reduce(0) { $0 + ($1.usage?.totalTokens ?? 0) }
+        return total > 0 ? total : nil
     }
 
     private func quickActionButton(

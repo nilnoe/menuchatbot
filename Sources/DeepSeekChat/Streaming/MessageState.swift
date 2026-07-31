@@ -18,6 +18,8 @@ final class MessageState: ObservableObject, Identifiable {
     @Published private(set) var content: String
     @Published private(set) var reasoning: String?
     @Published var sources: [Source]?
+    /// 流式结束后由 API 返回的 token 用量。
+    @Published private(set) var usage: TokenUsage?
     @Published var isSearching: Bool
     @Published private(set) var isError: Bool
     /// 消息自身是否处于流式（由本对象维护，不依赖 ChatView 的可覆盖状态）。
@@ -35,6 +37,7 @@ final class MessageState: ObservableObject, Identifiable {
         self.content = message.content
         self.reasoning = message.reasoning
         self.sources = message.sources
+        self.usage = message.usage
         self.isSearching = message.isSearching
         self.isError = message.isError
     }
@@ -79,6 +82,10 @@ final class MessageState: ObservableObject, Identifiable {
     func setSources(_ sources: [Source]) {
         self.sources = sources
         isSearching = false
+    }
+
+    func setUsage(_ usage: TokenUsage) {
+        self.usage = usage
     }
 
     /// 出错时丢弃未提交的增量，直接替换为错误信息。

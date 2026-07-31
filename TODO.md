@@ -14,7 +14,10 @@
 >
 > **当前进展（0.3 起点）**：自定义模型供应商（OpenAI 兼容 base_url）落地——设置页可启用
 > 自定义供应商、配置 API 地址与模型列表；请求自动切换到自定义地址，DeepSeek 专属参数
-> （thinking / reasoning_effort / 联网搜索）对自定义模型省略；测试 157 全绿。
+> （thinking / reasoning_effort / 联网搜索）对自定义模型省略；
+> 侧栏 hover 快捷操作与会话图标收尾 Beta 0.2；Token 用量展示与费用估算落地
+> （流式 include_usage 解析、按消息持久化、消息行/侧栏展示、官方单价估算）；
+> 测试 171 全绿。
 >
 > **下一步方向**：① Beta 0.2 收尾剩余项：侧栏 hover 操作（重命名/删除）、会话图标（快捷键与全局热键按需求暂不做）；
 > ② Beta 0.3：自定义模型供应商（OpenAI 兼容 base_url）、Token 用量展示、会话置顶/归档/标签、自动标题。
@@ -114,7 +117,7 @@
 - [x] Markdown 表格与完整 GFM 支持（已集成 MarkdownUI 2.x，解析结果按内容缓存）
 - [x] 代码高亮（HighlighterSwift 3.1 + MarkdownUI CodeSyntaxHighlighter，highlight.js 11）
 - [x] 自定义模型供应商（OpenAI 兼容 base_url），模型列表可配置
-- [ ] Token 用量展示与费用估算
+- [x] Token 用量展示与费用估算
 - [ ] 会话置顶 / 归档 / 标签
 - [ ] 自动标题：模型总结首条消息生成更准确的会话名
   （当前仅启发式：新建会话以首条消息前 30 字命名）

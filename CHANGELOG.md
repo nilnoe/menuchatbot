@@ -6,6 +6,17 @@
 
 ### 新增
 
+- **Token 用量展示与费用估算（Beta 0.3）**
+  - 流式请求自动携带 `stream_options.include_usage`，从 Chat Completions 收尾块 /
+    Responses `response.completed` 解析 token 用量（含缓存命中分项），按消息持久化
+    （GRDB `message.usageJSON` 列，v2 迁移自动升级旧库）。
+  - assistant 消息气泡下方显示「输入 / 输出 / 缓存命中」用量与费用估算；
+    侧栏会话行显示累计 tokens。
+  - 费用按 DeepSeek 官方单价（USD / 1M tokens，含缓存命中/未命中分价）估算，
+    单价收敛在 `ModelCatalog`，自定义模型价格未知时不估算。
+  - 测试从 158 增至 171（SSE 用量解析、请求参数、成本估算、持久化、旧库迁移、
+    流式端到端）。
+
 - **侧栏 hover 快捷操作与会话图标（Beta 0.2 收尾）**
   - 侧栏会话行 hover 时浮现重命名 / 删除按钮（带 help 提示与淡入动画），
     与右键菜单行为一致；删除后选中项回退到剩余会话。

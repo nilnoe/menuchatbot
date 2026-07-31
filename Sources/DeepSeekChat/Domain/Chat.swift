@@ -17,6 +17,8 @@ struct ChatMessage: Codable, Equatable, Identifiable {
     var content: String
     var reasoning: String?
     var sources: [Source]?
+    /// 该回复的 token 用量（assistant 消息流式结束后由 API 返回）。
+    var usage: TokenUsage?
     var isSearching: Bool
     var isError: Bool
     var createdAt: Date
@@ -27,6 +29,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
         content: String,
         reasoning: String? = nil,
         sources: [Source]? = nil,
+        usage: TokenUsage? = nil,
         isSearching: Bool = false,
         isError: Bool = false,
         createdAt: Date = Date()
@@ -36,6 +39,7 @@ struct ChatMessage: Codable, Equatable, Identifiable {
         self.content = content
         self.reasoning = reasoning
         self.sources = sources
+        self.usage = usage
         self.isSearching = isSearching
         self.isError = isError
         self.createdAt = createdAt

@@ -23,6 +23,7 @@ struct MessageRecord: Codable, FetchableRecord, MutablePersistableRecord, TableR
     var content: String
     var reasoning: String?
     var sourcesJSON: String?
+    var usageJSON: String?
     var isSearching: Bool
     var isError: Bool
     var createdAt: Date
@@ -36,6 +37,9 @@ struct MessageRecord: Codable, FetchableRecord, MutablePersistableRecord, TableR
             reasoning: reasoning,
             sources: sourcesJSON.flatMap { json in
                 try? JSONDecoder().decode([Source].self, from: Data(json.utf8))
+            },
+            usage: usageJSON.flatMap { json in
+                try? JSONDecoder().decode(TokenUsage.self, from: Data(json.utf8))
             },
             isSearching: isSearching,
             isError: isError,

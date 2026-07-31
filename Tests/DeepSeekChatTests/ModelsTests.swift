@@ -10,6 +10,8 @@ final class ModelsTests: XCTestCase {
             content: "你好",
             reasoning: "思考",
             sources: [Source(title: "标题", url: "https://example.com")],
+            usage: TokenUsage(
+                promptTokens: 100, cachedTokens: 40, completionTokens: 25, totalTokens: 125),
             isSearching: true,
             isError: true,
             createdAt: Date(timeIntervalSince1970: 1_700_000_000)
@@ -48,6 +50,45 @@ final class ModelsTests: XCTestCase {
     func testSourceIDEqualsURL() {
         let source = Source(title: nil, url: "https://x.com")
         XCTAssertEqual(source.id, "https://x.com")
+    }
+
+    func testTokenUsageEstimatedCost() {
+        let usage = TokenUsage(
+            promptTokens: 1000, cachedTokens: 600, completionTokens: 500, totalTokens: 1500)
+        let cost = usage.estimatedCost(
+            inputPricePerMillion: 0.14,
+            cachedInputPricePerMillion: 0.0028,
+            outputPricePerMillion: 0.28
+        )
+        let expected = (400 * 0.14 + 600 * 0.0028 + 500 * 0.28) / 1_000_000
+        XCTAssertEqual(cost, expected, accuracy: 1e-9)
+    }
+
+    func testTokenUsageEstimatedCostFallsBackWhenCachePriceMissing() {
+        let usage = TokenUsage(
+            promptTokens: 100, cachedTokens: 100, completionTokens: 0, totalTokens: 100)
+        let cost = usage.estimatedCost(
+            inputPricePerMillion: 0.14,
+            cachedInputPricePerMillion: nil,
+            outputPricePerMillion: 0.28
+        )
+        XCTAssertEqual(cost, 100 * 0.14 / 1_000_000, accuracy: 1e-9)
+    }
+
+    func testTokenUsageCompact() {
+        XCTAssertEqual(TokenUsage.compact(0), "0")
+        XCTAssertEqual(TokenUsage.compact(999), "999")
+        XCTAssertEqual(TokenUsage.compact(1000), "1.0k")
+        XCTAssertEqual(TokenUsage.compact(1234), "1.2k")
+        XCTAssertEqual(TokenUsage.compact(12_345), "12.3k")
+    }
+
+    func testTokenUsageCodableRoundTrip() throws {
+        let usage = TokenUsage(
+            promptTokens: 10, cachedTokens: 3, completionTokens: 7, totalTokens: 17)
+        let data = try JSONEncoder().encode(usage)
+        let decoded = try JSONDecoder().decode(TokenUsage.self, from: data)
+        XCTAssertEqual(decoded, usage)
     }
 
     func testModelCatalogBuiltinLookup() {

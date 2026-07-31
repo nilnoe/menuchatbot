@@ -165,6 +165,9 @@ final class ChatStreamController: ObservableObject {
             onSources: { sources in
                 state.setSources(sources)
             },
+            onUsage: { usage in
+                state.setUsage(usage)
+            },
             onDone: {
                 state.setSearching(false)
             },

@@ -27,6 +27,18 @@ enum SSEParser {
     }
 
     static func handleChatEvent(_ json: [String: Any], _ callbacks: StreamCallbacks) {
+        // include_usage 时，流式收尾块携带整个请求的用量统计（choices 为空）。
+        // 需在 delta guard 之前处理，否则空 choices 会提前 return。
+        if let usage = json["usage"] as? [String: Any] {
+            callbacks.onUsage(
+                TokenUsage(
+                    promptTokens: usage["prompt_tokens"] as? Int ?? 0,
+                    cachedTokens: usage["prompt_cache_hit_tokens"] as? Int ?? 0,
+                    completionTokens: usage["completion_tokens"] as? Int ?? 0,
+                    totalTokens: usage["total_tokens"] as? Int ?? 0
+                )
+            )
+        }
         guard
             let choices = json["choices"] as? [[String: Any]],
             let first = choices.first,
@@ -68,6 +80,20 @@ enum SSEParser {
                 }
             }
         } else if type == "response.completed" || type == "response.incomplete" {
+            // 完成事件携带整个请求的用量统计。
+            if let response = json["response"] as? [String: Any],
+                let usage = response["usage"] as? [String: Any]
+            {
+                let details = usage["input_tokens_details"] as? [String: Any] ?? [:]
+                callbacks.onUsage(
+                    TokenUsage(
+                        promptTokens: usage["input_tokens"] as? Int ?? 0,
+                        cachedTokens: details["cached_tokens"] as? Int ?? 0,
+                        completionTokens: usage["output_tokens"] as? Int ?? 0,
+                        totalTokens: usage["total_tokens"] as? Int ?? 0
+                    )
+                )
+            }
             callbacks.onDone()
             return true
         } else if type == "response.failed" {
