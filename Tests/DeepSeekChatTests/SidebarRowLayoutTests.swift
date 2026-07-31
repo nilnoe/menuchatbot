@@ -19,12 +19,12 @@ final class SidebarRowLayoutTests: XCTestCase {
         }
     }
 
-    /// 复刻 SidebarSessionRow：ZStack(alignment: .trailing) + 正文 hover 预留位。
+    /// 复刻 SidebarSessionRow：行内容与快捷按钮「并排」HStack（不再 ZStack 重叠）。
     private struct RowProbe: View {
-        let isHovered: Bool
+        let showsActions: Bool
 
         var body: some View {
-            ZStack(alignment: .trailing) {
+            HStack(spacing: 0) {
                 HStack(spacing: 8) {
                     Image(systemName: "bubble.left")
                         .font(.system(size: 12, weight: .medium))
@@ -32,7 +32,7 @@ final class SidebarRowLayoutTests: XCTestCase {
                         .frame(width: 16)
 
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("一个很长的会话标题，用于验证 hover 预留位是否足够")
+                        Text("一个很长的会话标题，用于验证快捷按钮不遮挡正文")
                             .font(.callout)
                             .lineLimit(1)
                         HStack(spacing: 6) {
@@ -50,14 +50,11 @@ final class SidebarRowLayoutTests: XCTestCase {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(measure("text", edge: \.maxX))
-                    .padding(
-                        .trailing,
-                        isHovered ? DesignTokens.Sidebar.quickActionsReservedWidth : 0
-                    )
                 }
                 .padding(8)
+                .frame(maxWidth: .infinity)
 
-                if isHovered {
+                if showsActions {
                     HStack(spacing: DesignTokens.Sidebar.quickActionSpacing) {
                         ForEach(0..<3, id: \.self) { _ in
                             Image(systemName: "pin")
@@ -86,9 +83,9 @@ final class SidebarRowLayoutTests: XCTestCase {
         }
     }
 
-    private func measureEdges(isHovered: Bool) -> (textMaxX: CGFloat, actionsMinX: CGFloat) {
+    private func measureEdges(showsActions: Bool) -> (textMaxX: CGFloat, actionsMinX: CGFloat) {
         var edges: [String: CGFloat] = [:]
-        let probe = RowProbe(isHovered: isHovered)
+        let probe = RowProbe(showsActions: showsActions)
             .onPreferenceChange(EdgeKey.self) { edges = $0 }
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 240, height: 120),
@@ -114,15 +111,15 @@ final class SidebarRowLayoutTests: XCTestCase {
         )
     }
 
-    /// hover 时正文（含最长 tokens 子行）不得越过快捷按钮左缘。
-    func testHoveredRowTextDoesNotOverlapQuickActions() {
-        let result = measureEdges(isHovered: true)
+    /// 显示快捷按钮时正文（含最长 tokens 子行）不得越过按钮左缘。
+    func testRowTextDoesNotOverlapQuickActions() {
+        let result = measureEdges(showsActions: true)
         XCTAssertLessThanOrEqual(result.textMaxX, result.actionsMinX)
     }
 
-    /// 非 hover 时正文可用满整行（无按钮遮挡，无需预留）。
-    func testNonHoveredRowTextSpansFullWidth() {
-        let result = measureEdges(isHovered: false)
+    /// 无快捷按钮时正文可用满整行。
+    func testRowTextSpansFullWidthWithoutActions() {
+        let result = measureEdges(showsActions: false)
         XCTAssertGreaterThan(result.textMaxX, result.actionsMinX)
     }
 

@@ -117,6 +117,9 @@
     点击落空）；置顶图标不再用 `pin.slash`（斜线读作禁止），未置顶 `pin` /
     已置顶 `pin.fill`（强调色）；重命名从 `.alert` 弹窗改为行内编辑
     （Enter 确定 / Esc 取消 / ✓✗ 按钮），绕开 NSPanel 上 alert 延迟不出现。
+    第三轮：行结构从「ZStack 重叠（整行 Button 叠快捷 Button）」改为
+    「行内容与快捷按钮并排 HStack」——macOS 上重叠按钮的点击会被下层按钮
+    吃掉（点击 UI 无反应）；快捷按钮样式由 plain 改为 borderless。
   - 护航测试：`SidebarRowLayoutTests`（预留位公式 + hover 正文不越过按钮
     左缘的布局探针 + 真实行挂窗渲染冒烟 + 行内重命名渲染冒烟 +
     快捷操作可见性规则）。

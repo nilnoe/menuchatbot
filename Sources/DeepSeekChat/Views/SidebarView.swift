@@ -220,47 +220,17 @@ struct SidebarSessionRow: View {
     }
 
     var body: some View {
-        ZStack(alignment: .trailing) {
+        // 行内容与快捷按钮「并排」而非 ZStack 重叠：
+        // macOS 上整行 Button 与叠在其上的快捷 Button 重叠时，点击会被下层
+        // 行 Button 吃掉（「点击没反应」）；并排布局天然没有命中冲突。
+        HStack(spacing: 0) {
             rowContainer
-
-            if isRenaming {
-                // 重命名期间用「确定 / 取消」替代快捷操作。
-                HStack(spacing: DesignTokens.Sidebar.quickActionSpacing) {
-                    quickActionButton(
-                        systemImage: "checkmark",
-                        help: "确定",
-                        action: onRenameConfirm
-                    )
-                    quickActionButton(
-                        systemImage: "xmark",
-                        help: "取消",
-                        action: onRenameCancel
-                    )
-                }
-                .padding(.trailing, DesignTokens.Sidebar.quickActionsTrailingPadding)
-            } else if showsQuickActions {
-                HStack(spacing: DesignTokens.Sidebar.quickActionSpacing) {
-                    quickActionButton(
-                        systemImage: session.isPinned ? "pin.fill" : "pin",
-                        help: session.isPinned ? "取消置顶" : "置顶",
-                        foreground: session.isPinned ? Color.accentColor : Color.secondary,
-                        action: onTogglePin
-                    )
-                    quickActionButton(
-                        systemImage: "pencil",
-                        help: "重命名",
-                        action: onRename
-                    )
-                    quickActionButton(
-                        systemImage: "trash",
-                        help: "删除",
-                        destructive: true,
-                        action: onDelete
-                    )
-                }
-                .padding(.trailing, DesignTokens.Sidebar.quickActionsTrailingPadding)
-            }
+            trailingActions
         }
+        .background(
+            RoundedRectangle(cornerRadius: 7)
+                .fill(rowBackground)
+        )
         .onHover { hovering in
             isHovered = hovering
         }
@@ -268,6 +238,48 @@ struct SidebarSessionRow: View {
             if renaming {
                 renameFocused = true
             }
+        }
+    }
+
+    /// 右侧操作区：重命名时「确定 / 取消」，否则快捷操作（置顶 / 重命名 / 删除）。
+    /// 与行内容并排，不与行 Button 重叠。
+    @ViewBuilder
+    private var trailingActions: some View {
+        if isRenaming {
+            HStack(spacing: DesignTokens.Sidebar.quickActionSpacing) {
+                quickActionButton(
+                    systemImage: "checkmark",
+                    help: "确定",
+                    action: onRenameConfirm
+                )
+                quickActionButton(
+                    systemImage: "xmark",
+                    help: "取消",
+                    action: onRenameCancel
+                )
+            }
+            .padding(.trailing, DesignTokens.Sidebar.quickActionsTrailingPadding)
+        } else if showsQuickActions {
+            HStack(spacing: DesignTokens.Sidebar.quickActionSpacing) {
+                quickActionButton(
+                    systemImage: session.isPinned ? "pin.fill" : "pin",
+                    help: session.isPinned ? "取消置顶" : "置顶",
+                    foreground: session.isPinned ? Color.accentColor : Color.secondary,
+                    action: onTogglePin
+                )
+                quickActionButton(
+                    systemImage: "pencil",
+                    help: "重命名",
+                    action: onRename
+                )
+                quickActionButton(
+                    systemImage: "trash",
+                    help: "删除",
+                    destructive: true,
+                    action: onDelete
+                )
+            }
+            .padding(.trailing, DesignTokens.Sidebar.quickActionsTrailingPadding)
         }
     }
 
@@ -313,19 +325,9 @@ struct SidebarSessionRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            // hover / 重命名时预留与右侧按钮组实宽一致的位，避免文字被覆盖。
-            // （0.2.2 曾用 44pt 估算，小于三按钮实际宽度导致重叠。）
-            .padding(
-                .trailing,
-                isRenaming || showsQuickActions
-                    ? DesignTokens.Sidebar.quickActionsReservedWidth : 0
-            )
         }
         .padding(8)
-        .background(
-            RoundedRectangle(cornerRadius: 7)
-                .fill(rowBackground)
-        )
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -391,7 +393,9 @@ struct SidebarSessionRow: View {
                     height: DesignTokens.Sidebar.quickActionButtonSize
                 )
         }
-        .buttonStyle(.plain)
+        // borderless：与窗口内其他图标按钮同款样式，避免 plain 样式在部分
+        // macOS 版本下点击无响应。
+        .buttonStyle(.borderless)
         .foregroundStyle(destructive ? Color.red : foreground)
         .help(help)
     }
