@@ -174,7 +174,9 @@ struct ChatView: View {
                 } else {
                     emptyState
                         .frame(maxWidth: .infinity)
-                        .padding(.top, 80)
+                        // 空状态在消息区视口内垂直居中：用视口高度做 minHeight，
+                        // 窗口高度变化时实时重新居中（不再用固定 80pt 粗略下移）。
+                        .frame(minHeight: viewportHeight, alignment: .center)
                 }
             }
             .coordinateSpace(name: "chatScroll")
