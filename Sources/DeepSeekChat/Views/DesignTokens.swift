@@ -52,7 +52,7 @@ enum DesignTokens {
     // MARK: - 侧栏（会话列表）
     enum Sidebar {
         /// 侧栏固定宽度（ContentView 引用；调宽只改这里）。
-        static let width: CGFloat = 176
+        static let width: CGFloat = 200
 
         /// hover 快捷按钮组：置顶 / 重命名 / 删除。
         static let quickActionButtonSize: CGFloat = 22
