@@ -2,7 +2,7 @@
 
 > **AI 项目**：一个完全由 DeepSeek 大模型驱动的原生 macOS 菜单栏聊天应用。
 >
-> 当前版本：**Beta 0.2** · 纯 Swift / SwiftUI 实现，无 Web 框架、无 WebView、无运行时服务进程。
+> 当前版本：**Beta 0.3** · 纯 Swift / SwiftUI 实现，无 Web 框架、无 WebView、无运行时服务进程。
 > 版本更迭与开发经验见 [CHANGELOG.md](CHANGELOG.md)。
 
 点击菜单栏图标即可呼出聊天面板，随时问 AI、联网搜索、管理多个会话——像系统自带工具一样轻快。
@@ -32,8 +32,11 @@ MenuChatBot 是一个常驻在 macOS 菜单栏的 AI 聊天应用：
 | 对话设置 | 自定义 System Prompt、temperature（0~2）随机性调节、API Key 测试连接 |
 | 自定义模型供应商 | 设置页接入任意 OpenAI 兼容 API（自定义 base_url 与模型列表），
   自定义模型自动省略 DeepSeek 专属参数 |
+| Token 用量与费用估算 | 每条回复显示输入 / 输出 / 缓存命中用量与费用估算，
+  侧栏会话行累计展示 |
 | API Key 安全存储 | 存于 macOS 钥匙串（Keychain），不上传、不写入代码 |
-| 窗口体验 | 统一系统表面风格；默认铺满屏幕约 93% 居中，可缩放、可拖动，记住上次位置与大小 |
+| 窗口体验 | 统一系统表面风格；设置页可选 紧凑 70% / 标准 85% / 铺满 93%
+  三档窗口大小（每次启动按档位生效），可缩放、可拖动 |
 
 ## 环境要求
 
@@ -79,7 +82,7 @@ open "dist/DeepSeek Chat.app"
 
 ```bash
 swift build       # 编译开发版（.build/debug/DeepSeekChat）
-swift test        # 运行 140 个单元测试（含性能基线）
+swift test        # 运行 185 个单元测试（含性能基线）
 .build/debug/DeepSeekChat   # 启动开发版
 ```
 
@@ -102,7 +105,7 @@ menuchatbot/
 │   ├── Views/                 # SwiftUI 界面（纯展示）
 │   ├── DeepSeekChatApp.swift  # @main 入口
 │   └── AppConfiguration.swift # 应用级常量单一入口
-└── Tests/DeepSeekChatTests/   # 146 个单元测试
+└── Tests/DeepSeekChatTests/   # 185 个单元测试
 ```
 
 分层规则（Views → Streaming → Services / Persistence → Domain）与
