@@ -153,10 +153,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 默认铺满可见区域约 93%（四周留边距，视觉舒展）；之后记住用户调整过的位置与大小。
         // autosave 名称从 mainPanel 升级为 mainPanelV2：旧版本保存的小窗口尺寸作废一次，
         // 让本次默认尺寸真正生效；用户重调后仍会按新名称记住。
-        if !panel.setFrameUsingName("mainPanelV2") {
+        if !panel.setFrameUsingName(AppConfiguration.panelAutosaveName) {
             applyDefaultFrame()
         }
-        panel.setFrameAutosaveName("mainPanelV2")
+        panel.setFrameAutosaveName(AppConfiguration.panelAutosaveName)
 
         let root = ContentView()
             .environmentObject(sessionStore)
