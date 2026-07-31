@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import XCTest
+
 @testable import DeepSeekChat
 
 /// 完整 ChatView 渲染复现测试：真实挂窗口、走两轮对话流程、逐帧截图，
@@ -39,7 +40,9 @@ final class ChatViewRenderTests: XCTestCase {
         try? FileManager.default.removeItem(at: tempDir)
     }
 
-    private func makeChatView(streamingSessionID: UUID? = nil, streamingState: MessageState? = nil) -> ChatView {
+    private func makeChatView(streamingSessionID: UUID? = nil, streamingState: MessageState? = nil)
+        -> ChatView
+    {
         let binding = Binding<UUID?>(
             get: { [weak self] in self?.selectedBox.id },
             set: { [weak self] in self?.selectedBox.id = $0 }
@@ -58,7 +61,13 @@ final class ChatViewRenderTests: XCTestCase {
             defer: false
         )
         hosting = NSHostingView(
-            rootView: AnyView(view.environmentObject(store).environmentObject(settings))
+            rootView: AnyView(
+                view
+                    .environmentObject(store)
+                    .environmentObject(settings)
+                    // 显式白色背景：无边框窗口默认渲染为透明/黑，会把整窗算成墨水
+                    .background(Color.white)
+            )
         )
         hosting.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
         window.contentView = hosting
@@ -83,7 +92,9 @@ final class ChatViewRenderTests: XCTestCase {
 
     /// 统计消息区非背景像素占比；接近 0 说明消息区空白。
     private func messageAreaInkRatio() -> Double {
-        guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else { return 0 }
+        guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
+            return 0
+        }
         hosting.cacheDisplay(in: hosting.bounds, to: rep)
         var dark = 0
         var total = 0
@@ -91,11 +102,40 @@ final class ChatViewRenderTests: XCTestCase {
             for x in stride(from: 20, to: 620, by: 2) {
                 guard let c = rep.colorAt(x: x, y: y) else { continue }
                 total += 1
-                let lum = 0.299 * c.redComponent + 0.587 * c.greenComponent + 0.114 * c.blueComponent
+                let lum =
+                    0.299 * c.redComponent + 0.587 * c.greenComponent + 0.114 * c.blueComponent
                 if lum < 0.88 { dark += 1 }
             }
         }
         return total == 0 ? 0 : Double(dark) / Double(total)
+    }
+
+    /// 统计消息区上半 / 下半的非背景像素占比，用于验证「短会话顶置」。
+    /// 消息区扫描范围 y 60...400（避开顶部标题与底部输入框）。
+    private func messageAreaInkByHalf() -> (top: Double, bottom: Double) {
+        guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
+            return (0, 0)
+        }
+        hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        var topDark = 0
+        var bottomDark = 0
+        var topTotal = 0
+        var bottomTotal = 0
+        for y in stride(from: 60, to: 400, by: 2) {
+            for x in stride(from: 20, to: 620, by: 2) {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                let lum =
+                    0.299 * c.redComponent + 0.587 * c.greenComponent + 0.114 * c.blueComponent
+                if lum < 0.88 {
+                    if y < 230 { topDark += 1 } else { bottomDark += 1 }
+                }
+                if y < 230 { topTotal += 1 } else { bottomTotal += 1 }
+            }
+        }
+        return (
+            Double(topDark) / Double(max(topTotal, 1)),
+            Double(bottomDark) / Double(max(bottomTotal, 1))
+        )
     }
 
     /// 递归查找 SwiftUI ScrollView 底层的 NSScrollView，返回文档可见区与文档总尺寸。
@@ -108,7 +148,8 @@ final class ChatViewRenderTests: XCTestCase {
             return nil
         }
         guard let scroll = find(in: hosting),
-              let document = scroll.documentView else { return nil }
+            let document = scroll.documentView
+        else { return nil }
         return (scroll.documentVisibleRect, document.frame)
     }
 
@@ -247,5 +288,26 @@ final class ChatViewRenderTests: XCTestCase {
         settle()
         try snapshot(named: "huge-after-send")
         XCTAssertGreaterThan(messageAreaInkRatio(), 0.0005, "超长单条消息后发送，消息区空白")
+    }
+
+    /// 短会话顶置：只有一两条消息时，气泡应贴在消息区顶部（上半墨水占比更高），
+    /// 而不是沉在底部。这是「看起来像正序」的核心观感。
+    func testShortConversationInkAtTop() throws {
+        let session = store.createSession(title: "短会话")
+        selectedBox.id = session.id
+        host(makeChatView())
+        settle()
+
+        store.appendMessage(sessionID: session.id, ChatMessage(role: .user, content: "你好"))
+        store.appendMessage(
+            sessionID: session.id,
+            ChatMessage(role: .assistant, content: "你好！有什么可以帮你？")
+        )
+        settle()
+        try snapshot(named: "short-pinned-top")
+
+        let (top, bottom) = messageAreaInkByHalf()
+        print("SHORT-INK top=\(top) bottom=\(bottom)")
+        XCTAssertGreaterThan(top, bottom, "短会话应顶置：首条气泡应在消息区上半部分")
     }
 }

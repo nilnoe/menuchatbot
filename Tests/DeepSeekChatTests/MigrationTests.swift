@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import DeepSeekChat
 
 final class MigrationTests: XCTestCase {
@@ -26,33 +27,35 @@ final class MigrationTests: XCTestCase {
         let assistantID = UUID().uuidString
         let sessionID = UUID().uuidString
         let json: [String: Any] = [
-            "deepseek-chat.sessions.v1": [[
-                "id": sessionID,
-                "title": "你好",
-                "createdAt": 1_700_000_000_000.0,
-                "updatedAt": 1_700_000_100_000.0,
-                "messages": [
-                    [
-                        "id": userID,
-                        "role": "user",
-                        "content": "hi",
-                        "createdAt": 1_700_000_000_000.0
-                    ],
-                    [
-                        "id": assistantID,
-                        "role": "assistant",
-                        "content": "hello",
-                        "reasoning": "think",
-                        "sources": [
-                            ["title": "A", "url": "https://a.com"],
-                            ["title": "B", "url": ""]
+            "deepseek-chat.sessions.v1": [
+                [
+                    "id": sessionID,
+                    "title": "你好",
+                    "createdAt": 1_700_000_000_000.0,
+                    "updatedAt": 1_700_000_100_000.0,
+                    "messages": [
+                        [
+                            "id": userID,
+                            "role": "user",
+                            "content": "hi",
+                            "createdAt": 1_700_000_000_000.0,
                         ],
-                        "error": true,
-                        "searching": true,
-                        "createdAt": 1_700_000_050_000.0
-                    ]
+                        [
+                            "id": assistantID,
+                            "role": "assistant",
+                            "content": "hello",
+                            "reasoning": "think",
+                            "sources": [
+                                ["title": "A", "url": "https://a.com"],
+                                ["title": "B", "url": ""],
+                            ],
+                            "error": true,
+                            "searching": true,
+                            "createdAt": 1_700_000_050_000.0,
+                        ],
+                    ],
                 ]
-            ]]
+            ]
         ]
 
         let sessions = try XCTUnwrap(
@@ -84,18 +87,22 @@ final class MigrationTests: XCTestCase {
 
     func testMigrateMissingOptionalFields() throws {
         let json: [String: Any] = [
-            "deepseek-chat.sessions.v1": [[
-                "id": UUID().uuidString,
-                "title": "空",
-                "createdAt": 1_000.0,
-                "updatedAt": 1_000.0,
-                "messages": [[
+            "deepseek-chat.sessions.v1": [
+                [
                     "id": UUID().uuidString,
-                    "role": "user",
-                    "content": "x",
-                    "createdAt": 1_000.0
-                ]]
-            ]]
+                    "title": "空",
+                    "createdAt": 1_000.0,
+                    "updatedAt": 1_000.0,
+                    "messages": [
+                        [
+                            "id": UUID().uuidString,
+                            "role": "user",
+                            "content": "x",
+                            "createdAt": 1_000.0,
+                        ]
+                    ],
+                ]
+            ]
         ]
 
         let sessions = try XCTUnwrap(
@@ -109,18 +116,22 @@ final class MigrationTests: XCTestCase {
 
     func testMigrateInvalidUUIDsFallBack() throws {
         let json: [String: Any] = [
-            "deepseek-chat.sessions.v1": [[
-                "id": "not-a-uuid",
-                "title": "x",
-                "createdAt": 1_000.0,
-                "updatedAt": 1_000.0,
-                "messages": [[
-                    "id": "also-bad",
-                    "role": "user",
-                    "content": "x",
-                    "createdAt": 1_000.0
-                ]]
-            ]]
+            "deepseek-chat.sessions.v1": [
+                [
+                    "id": "not-a-uuid",
+                    "title": "x",
+                    "createdAt": 1_000.0,
+                    "updatedAt": 1_000.0,
+                    "messages": [
+                        [
+                            "id": "also-bad",
+                            "role": "user",
+                            "content": "x",
+                            "createdAt": 1_000.0,
+                        ]
+                    ],
+                ]
+            ]
         ]
 
         let sessions = try XCTUnwrap(
@@ -133,18 +144,22 @@ final class MigrationTests: XCTestCase {
 
     func testMigrateUnknownRoleBecomesAssistant() throws {
         let json: [String: Any] = [
-            "deepseek-chat.sessions.v1": [[
-                "id": UUID().uuidString,
-                "title": "x",
-                "createdAt": 1_000.0,
-                "updatedAt": 1_000.0,
-                "messages": [[
+            "deepseek-chat.sessions.v1": [
+                [
                     "id": UUID().uuidString,
-                    "role": "system",
-                    "content": "x",
-                    "createdAt": 1_000.0
-                ]]
-            ]]
+                    "title": "x",
+                    "createdAt": 1_000.0,
+                    "updatedAt": 1_000.0,
+                    "messages": [
+                        [
+                            "id": UUID().uuidString,
+                            "role": "system",
+                            "content": "x",
+                            "createdAt": 1_000.0,
+                        ]
+                    ],
+                ]
+            ]
         ]
 
         let sessions = try XCTUnwrap(
@@ -155,13 +170,15 @@ final class MigrationTests: XCTestCase {
 
     func testMigrateEmptyMessages() throws {
         let json: [String: Any] = [
-            "deepseek-chat.sessions.v1": [[
-                "id": UUID().uuidString,
-                "title": "x",
-                "createdAt": 1_000.0,
-                "updatedAt": 1_000.0,
-                "messages": []
-            ]]
+            "deepseek-chat.sessions.v1": [
+                [
+                    "id": UUID().uuidString,
+                    "title": "x",
+                    "createdAt": 1_000.0,
+                    "updatedAt": 1_000.0,
+                    "messages": [],
+                ]
+            ]
         ]
 
         let sessions = try XCTUnwrap(
@@ -173,8 +190,14 @@ final class MigrationTests: XCTestCase {
     func testMigrateMultipleSessionsPreservesOrder() throws {
         let json: [String: Any] = [
             "deepseek-chat.sessions.v1": [
-                ["id": UUID().uuidString, "title": "一", "createdAt": 1.0, "updatedAt": 1.0, "messages": []],
-                ["id": UUID().uuidString, "title": "二", "createdAt": 2.0, "updatedAt": 2.0, "messages": []]
+                [
+                    "id": UUID().uuidString, "title": "一", "createdAt": 1.0, "updatedAt": 1.0,
+                    "messages": [],
+                ],
+                [
+                    "id": UUID().uuidString, "title": "二", "createdAt": 2.0, "updatedAt": 2.0,
+                    "messages": [],
+                ],
             ]
         ]
 

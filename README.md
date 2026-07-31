@@ -26,9 +26,12 @@ MenuChatBot 是一个常驻在 macOS 菜单栏的 AI 聊天应用：
 | 思考模式 | 开启后模型先推理再回答，推理过程可折叠查看；支持低 / 高 / Max 三档强度 |
 | 联网搜索 | 回答前实时联网（服务端 `web_search`），附参考来源链接 |
 | 多会话管理 | 新建 / 切换 / 重命名 / 删除，自动持久化，重启不丢失 |
+| 会话导入 / 导出 | 全量 JSON 备份与恢复，或单个会话导出分享 |
 | Markdown 渲染 | 标题、列表、代码块、链接等常见格式 |
+| 代码高亮 | 代码块支持 185+ 语言语法高亮（highlight.js），语言标签 + 一键复制 |
+| 对话设置 | 自定义 System Prompt、temperature（0~2）随机性调节、API Key 测试连接 |
 | API Key 安全存储 | 存于 macOS 钥匙串（Keychain），不上传、不写入代码 |
-| 窗口体验 | 默认占屏幕四分之三居中，可缩放、可拖动，记住上次位置与大小 |
+| 窗口体验 | 统一系统表面风格；默认铺满屏幕约 93% 居中，可缩放、可拖动，记住上次位置与大小 |
 
 ## 环境要求
 
@@ -74,7 +77,7 @@ open "dist/DeepSeek Chat.app"
 
 ```bash
 swift build       # 编译开发版（.build/debug/DeepSeekChat）
-swift test        # 运行 83 个单元测试
+swift test        # 运行 140 个单元测试（含性能基线）
 .build/debug/DeepSeekChat   # 启动开发版
 ```
 

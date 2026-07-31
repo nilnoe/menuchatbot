@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    name: Swift Format Lint
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint
+        run: swift format lint --recursive --strict Sources Tests
+
+  test:
+    name: Build & Test
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+
+  release:
+    name: Release Build
+    needs: [lint, test]
+    # 仅打 tag（v*）时构建可分发的 .app
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package .app
+        run: ./scripts/make-app.sh
+      - name: Upload .app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DeepSeek-Chat-${{ github.ref_name }}
+          path: dist/DeepSeek Chat.app
+          if-no-files-found: error

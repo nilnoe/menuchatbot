@@ -60,7 +60,8 @@ enum SSEParser {
             }
         } else if type == "response.output_item.done" {
             if let item = json["item"] as? [String: Any],
-               item["type"] as? String == "web_search_call" {
+                item["type"] as? String == "web_search_call"
+            {
                 let sources = extractSources(json)
                 if !sources.isEmpty {
                     callbacks.onSources(sources)
@@ -71,8 +72,7 @@ enum SSEParser {
             return true
         } else if type == "response.failed" {
             let message: String
-            if
-                let response = json["response"] as? [String: Any],
+            if let response = json["response"] as? [String: Any],
                 let error = response["error"] as? [String: Any],
                 let msg = error["message"] as? String
             {
@@ -117,8 +117,7 @@ enum SSEParser {
 
     /// 从上游错误响应中解析人类可读的错误信息
     static func parseError(_ text: String) -> String {
-        if
-            let data = text.data(using: .utf8),
+        if let data = text.data(using: .utf8),
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let error = object["error"] as? [String: Any],
             let message = error["message"] as? String

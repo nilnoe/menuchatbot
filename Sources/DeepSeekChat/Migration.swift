@@ -36,14 +36,17 @@ enum Migration {
     }
 
     static func migrateSessions() -> [ChatSession]? {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first!
         return migrateSessions(from: base.appendingPathComponent("com.deepseek.chat/state.json"))
     }
 
     static func migrateSessions(from fileURL: URL) -> [ChatSession]? {
         let oldFile = fileURL
         guard let data = try? Data(contentsOf: oldFile) else { return nil }
-        guard let state = try? JSONDecoder().decode(LegacyState.self, from: data) else { return nil }
+        guard let state = try? JSONDecoder().decode(LegacyState.self, from: data) else {
+            return nil
+        }
 
         return state.sessions.map { legacy in
             ChatSession(

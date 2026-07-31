@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import DeepSeekChat
 
 final class SessionStoreTests: XCTestCase {
@@ -123,6 +124,48 @@ final class SessionStoreTests: XCTestCase {
         store.updateMessage(sessionID: session.id, messageID: UUID()) { $0.content = "x" }
         store.updateMessage(sessionID: UUID(), messageID: UUID()) { $0.content = "x" }
         XCTAssertEqual(store.session(id: session.id)?.messages[0].content, "a")
+    }
+
+    // MARK: - 单条消息删除
+
+    func testRemoveMessageRemovesFromMemory() {
+        let store = makeStore()
+        let session = store.createSession(title: "删除")
+        let first = ChatMessage(role: .user, content: "第一条")
+        let second = ChatMessage(role: .assistant, content: "第二条")
+        store.appendMessage(sessionID: session.id, first)
+        store.appendMessage(sessionID: session.id, second)
+
+        store.removeMessage(sessionID: session.id, messageID: first.id)
+
+        XCTAssertEqual(store.session(id: session.id)?.messages.map(\.content), ["第二条"])
+        XCTAssertEqual(store.session(id: session.id)?.messages.map(\.id), [second.id])
+    }
+
+    func testRemoveMessagePersistsAcrossInstances() {
+        let store = makeStore()
+        let session = store.createSession(title: "删除持久化")
+        for content in ["A", "B", "C"] {
+            store.appendMessage(
+                sessionID: session.id,
+                ChatMessage(role: .user, content: content)
+            )
+        }
+        let messages = store.session(id: session.id)!.messages
+        // 删除中间一条，position 应重排连续
+        store.removeMessage(sessionID: session.id, messageID: messages[1].id)
+
+        let reloaded = makeStore()
+        XCTAssertEqual(reloaded.session(id: session.id)?.messages.map(\.content), ["A", "C"])
+    }
+
+    func testRemoveMessageUnknownIDsNoop() {
+        let store = makeStore()
+        let session = store.createSession()
+        store.appendMessage(sessionID: session.id, ChatMessage(role: .user, content: "a"))
+        store.removeMessage(sessionID: session.id, messageID: UUID())
+        store.removeMessage(sessionID: UUID(), messageID: UUID())
+        XCTAssertEqual(store.session(id: session.id)?.messages.map(\.content), ["a"])
     }
 
     // MARK: - 消息状态（流式性能）
@@ -292,13 +335,15 @@ final class SessionStoreTests: XCTestCase {
 
     func testLegacyStateMigratesIntoSQLite() throws {
         let state: [String: Any] = [
-            "deepseek-chat.sessions.v1": [[
-                "id": UUID().uuidString,
-                "title": "旧会话",
-                "createdAt": 1_000.0,
-                "updatedAt": 1_000.0,
-                "messages": []
-            ]]
+            "deepseek-chat.sessions.v1": [
+                [
+                    "id": UUID().uuidString,
+                    "title": "旧会话",
+                    "createdAt": 1_000.0,
+                    "updatedAt": 1_000.0,
+                    "messages": [],
+                ]
+            ]
         ]
         let data = try JSONSerialization.data(withJSONObject: state)
         try writeFile("state.json", data)
@@ -307,28 +352,34 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(store.sessions.count, 1)
         XCTAssertEqual(store.sessions[0].title, "旧会话")
         // 迁移后数据进入 SQLite
-        XCTAssertTrue(FileManager.default.fileExists(atPath: tempDir.appendingPathComponent("sessions.sqlite").path))
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: tempDir.appendingPathComponent("sessions.sqlite").path))
     }
 
     func testSessionsFileTakesPrecedenceOverMigration() throws {
-        let sessions: [[String: Any]] = [[
-            "id": UUID().uuidString,
-            "title": "新版会话",
-            "createdAt": 1_000.0,
-            "updatedAt": 1_000.0,
-            "messages": []
-        ]]
+        let sessions: [[String: Any]] = [
+            [
+                "id": UUID().uuidString,
+                "title": "新版会话",
+                "createdAt": 1_000.0,
+                "updatedAt": 1_000.0,
+                "messages": [],
+            ]
+        ]
         let data = try JSONSerialization.data(withJSONObject: sessions)
         try writeFile("sessions.json", data)
 
         let state: [String: Any] = [
-            "deepseek-chat.sessions.v1": [[
-                "id": UUID().uuidString,
-                "title": "旧版会话",
-                "createdAt": 1_000.0,
-                "updatedAt": 1_000.0,
-                "messages": []
-            ]]
+            "deepseek-chat.sessions.v1": [
+                [
+                    "id": UUID().uuidString,
+                    "title": "旧版会话",
+                    "createdAt": 1_000.0,
+                    "updatedAt": 1_000.0,
+                    "messages": [],
+                ]
+            ]
         ]
         try writeFile("state.json", try JSONSerialization.data(withJSONObject: state))
 
@@ -409,5 +460,141 @@ final class SessionStoreTests: XCTestCase {
         // 重新加载后仍然一致（顺序由 position 列保证）
         let storeB = makeStore()
         XCTAssertEqual(storeB.session(id: session.id)?.messages.map(\.content), expected)
+    }
+
+    // MARK: - 导入 / 导出
+
+    func testExportImportRoundTrip() throws {
+        let source = makeStore()
+        let session = source.createSession(title: "导出测试")
+        source.appendMessage(
+            sessionID: session.id,
+            ChatMessage(role: .user, content: "你好")
+        )
+        source.appendMessage(
+            sessionID: session.id,
+            ChatMessage(
+                role: .assistant,
+                content: "世界",
+                reasoning: "先想想",
+                sources: [Source(title: "来源", url: "https://example.com")]
+            )
+        )
+
+        let data = try source.exportJSON()
+        let target = makeStore()
+        let result = try target.importJSON(data)
+
+        XCTAssertEqual(result.importedSessions, 1)
+        XCTAssertEqual(result.importedMessages, 2)
+        let imported = try XCTUnwrap(target.sessions.first)
+        XCTAssertEqual(imported.title, "导出测试")
+        XCTAssertEqual(imported.messages.count, 2)
+        XCTAssertEqual(imported.messages[0].content, "你好")
+        XCTAssertEqual(imported.messages[1].content, "世界")
+        XCTAssertEqual(imported.messages[1].reasoning, "先想想")
+        XCTAssertEqual(
+            imported.messages[1].sources, [Source(title: "来源", url: "https://example.com")])
+        // 导入会重新生成 ID，不覆盖原数据
+        XCTAssertNotEqual(imported.id, session.id)
+        let sourceMessages = try XCTUnwrap(source.session(id: session.id)?.messages)
+        XCTAssertFalse(imported.messages.map(\.id).contains(sourceMessages[0].id))
+    }
+
+    func testImportRegeneratesIDsToAvoidCollisions() throws {
+        let store = makeStore()
+        let session = store.createSession(title: "A")
+        store.appendMessage(sessionID: session.id, ChatMessage(role: .user, content: "hi"))
+        let data = try store.exportJSON()
+
+        _ = try store.importJSON(data)
+        _ = try store.importJSON(data)
+
+        XCTAssertEqual(store.sessions.count, 3)
+        let sessionIDs = store.sessions.map(\.id)
+        XCTAssertEqual(Set(sessionIDs).count, sessionIDs.count)
+        let messageIDs = store.sessions.flatMap(\.messages).map(\.id)
+        XCTAssertEqual(Set(messageIDs).count, messageIDs.count)
+    }
+
+    func testImportedSessionsPersistToDatabase() throws {
+        let source = makeStore()
+        let session = source.createSession(title: "持久化")
+        source.appendMessage(sessionID: session.id, ChatMessage(role: .user, content: "x"))
+        let data = try source.exportJSON()
+
+        _ = try makeStore().importJSON(data)
+
+        let reloaded = makeStore()
+        // 源会话 + 导入的会话都落在同一个 SQLite 库里
+        XCTAssertEqual(reloaded.sessions.count, 2)
+        XCTAssertEqual(Set(reloaded.sessions.map(\.title)), ["持久化"])
+        XCTAssertTrue(reloaded.sessions.allSatisfy { $0.messages.map(\.content) == ["x"] })
+    }
+
+    func testExportSingleSession() throws {
+        let store = makeStore()
+        let a = store.createSession(title: "A")
+        let b = store.createSession(title: "B")
+
+        let data = try XCTUnwrap(try store.exportSessionJSON(id: a.id))
+        let export = try JSONDecoder().decode(SessionExport.self, from: data)
+        XCTAssertEqual(export.sessions.map(\.title), ["A"])
+        XCTAssertNil(try store.exportSessionJSON(id: UUID()))
+    }
+
+    func testExportEmptyStoreRoundTrips() throws {
+        let store = makeStore()
+        let data = try store.exportJSON()
+        let result = try makeStore().importJSON(data)
+        XCTAssertEqual(result.importedSessions, 0)
+        XCTAssertEqual(result.importedMessages, 0)
+    }
+
+    func testImportRejectsWrongFormat() {
+        let store = makeStore()
+        let data = Data(
+            #"{"format":"other-app","version":1,"app":"x","exportedAt":0,"sessions":[]}"#.utf8
+        )
+        XCTAssertThrowsError(try store.importJSON(data)) { error in
+            guard case SessionImportError.unsupportedFormat = error else {
+                return XCTFail("应为 unsupportedFormat，实际：\(error)")
+            }
+        }
+    }
+
+    func testImportRejectsUnsupportedVersion() throws {
+        let store = makeStore()
+        var export = SessionExport(sessions: [])
+        export.version = 99
+        let data = try JSONEncoder().encode(export)
+
+        XCTAssertThrowsError(try store.importJSON(data)) { error in
+            guard case SessionImportError.unsupportedVersion(99) = error else {
+                return XCTFail("应为 unsupportedVersion(99)，实际：\(error)")
+            }
+        }
+    }
+
+    func testImportRejectsMalformedJSON() {
+        let store = makeStore()
+        XCTAssertThrowsError(try store.importJSON(Data("{broken".utf8))) { error in
+            guard case SessionImportError.decodingFailed = error else {
+                return XCTFail("应为 decodingFailed，实际：\(error)")
+            }
+        }
+    }
+
+    /// 坏数据（非法 role）应整体回滚，不能留下部分导入的会话。
+    func testFailedImportRollsBackWithoutPartialData() {
+        let store = makeStore()
+        _ = store.createSession(title: "已有")
+        let invalid = """
+            {"format":"deepseek-chat-sessions","version":1,"app":"DeepSeek Chat","exportedAt":0,"sessions":[{"id":"11111111-1111-1111-1111-111111111111","title":"坏会话","messages":[{"id":"22222222-2222-2222-2222-222222222222","role":"robot","content":"hi","isSearching":false,"isError":false,"createdAt":0}],"createdAt":0,"updatedAt":0}]}
+            """
+
+        XCTAssertThrowsError(try store.importJSON(Data(invalid.utf8)))
+        XCTAssertEqual(store.sessions.count, 1)
+        XCTAssertEqual(store.sessions.first?.title, "已有")
     }
 }

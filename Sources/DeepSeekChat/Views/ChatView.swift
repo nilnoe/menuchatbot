@@ -141,15 +141,17 @@ struct ChatView: View {
                     // 同时保持 LazyVStack 懒加载（不引入 VStack 全量布局的卡顿）。
                     LazyVStack(spacing: 10) {
                         ForEach(messages.reversed()) { message in
+                            let canRetry = message.isError && message.id == messages.last?.id
                             MessageView(
                                 state: sessionStore.messageState(for: message),
-                                isStreaming: message.id == streamingMessageID
+                                isStreaming: message.id == streamingMessageID,
+                                modelLabel: ModelInfo.info(settings.model).shortName,
+                                onRetry: canRetry ? { retryLastExchange() } : nil
                             )
                             .rotationEffect(.degrees(180))
                         }
                     }
                     .padding(.vertical, 10)
-                    .rotationEffect(.degrees(180))
                     .background(
                         GeometryReader { geo in
                             Color.clear.preference(
@@ -158,6 +160,13 @@ struct ChatView: View {
                             )
                         }
                     )
+                    .frame(maxWidth: DesignTokens.messageMaxWidth)
+                    .frame(maxWidth: .infinity)
+                    // 短会话顶置：旋转前把内容对齐到最小高度框的底部，
+                    // 旋转 180° 后正好落在视觉顶部（新消息仍在底部逐条向下增长）。
+                    // 内容超过视口后 minHeight 失效，行为与原来一致（贴底跟随）。
+                    .frame(minHeight: viewportHeight, alignment: .bottom)
+                    .rotationEffect(.degrees(180))
                 } else {
                     emptyState
                         .frame(maxWidth: .infinity)
@@ -166,6 +175,9 @@ struct ChatView: View {
             }
             .coordinateSpace(name: "chatScroll")
             .defaultScrollAnchor(.bottom)
+            // 倒置列表下滚动条会镜像到另一侧、拖动方向相反，隐藏它更贴近
+            // 聊天应用惯例（Messages 等也常隐藏）；滚动仍可用触控板/滚轮。
+            .scrollIndicators(.hidden)
             .background(
                 GeometryReader { geo in
                     Color.clear.preference(
@@ -229,8 +241,27 @@ struct ChatView: View {
             }
             .buttonStyle(.borderedProminent)
             .padding(.top, 6)
+
+            HStack(spacing: 8) {
+                ForEach(Self.suggestionPrompts, id: \.self) { prompt in
+                    Button(prompt) {
+                        send(prompt)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(!settings.keyConfigured)
+                }
+            }
+            .padding(.top, 8)
         }
     }
+
+    private static let suggestionPrompts = [
+        "帮我写周报",
+        "解释这段代码",
+        "写一封请假邮件",
+        "推荐周末活动",
+    ]
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
         guard let newest = session?.messages.last else { return }
@@ -292,7 +323,7 @@ struct ChatView: View {
                     .buttonStyle(.bordered)
                     .help("停止生成")
                 } else {
-                    Button(action: send) {
+                    Button(action: { send() }) {
                         Image(systemName: "arrow.up")
                     }
                     .buttonStyle(.borderedProminent)
@@ -310,7 +341,12 @@ struct ChatView: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color.secondary.opacity(0.2))
+                    .stroke(
+                        inputFocused
+                            ? Color.accentColor.opacity(0.7)
+                            : Color.secondary.opacity(0.2),
+                        lineWidth: inputFocused ? 1.5 : 1
+                    )
             )
 
             Text("内容由 DeepSeek AI 生成，请甄别使用")
@@ -322,9 +358,12 @@ struct ChatView: View {
 
     // MARK: - 发送 / 停止
 
-    private func send() {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func send(_ preset: String? = nil) {
+        let text = (preset ?? draft).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, streamingSessionID == nil, settings.keyConfigured else { return }
+        if preset == nil {
+            draft = ""
+        }
 
         var targetID = selectedID
         var targetSession = targetID.flatMap { sessionStore.session(id: $0) }
@@ -336,20 +375,23 @@ struct ChatView: View {
         }
         guard let session = targetSession, let sessionID = targetID else { return }
 
-        draft = ""
         if session.messages.isEmpty {
             sessionStore.renameSession(id: sessionID, title: String(text.prefix(30)))
         }
         let userMessage = ChatMessage(role: .user, content: text)
+        sessionStore.appendMessage(sessionID: sessionID, userMessage)
+        beginAssistantReply(sessionID: sessionID)
+    }
+
+    /// 追加一条 assistant 占位消息并启动流式回复（发送与重试共用）。
+    private func beginAssistantReply(sessionID: UUID) {
         let assistantMessage = ChatMessage(
             role: .assistant,
             content: "",
             isSearching: settings.webSearch
         )
-        sessionStore.appendMessage(sessionID: sessionID, userMessage)
         sessionStore.appendMessage(sessionID: sessionID, assistantMessage)
         let assistantState = sessionStore.messageState(for: assistantMessage)
-
         let history = sessionStore.history(for: sessionID)
         streamingSessionID = sessionID
         streamingState = assistantState
@@ -372,6 +414,15 @@ struct ChatView: View {
                 streamingState = nil
             }
         }
+    }
+
+    /// 重试：删除末尾的错误回复，重新生成最后一条用户消息的回答。
+    private func retryLastExchange() {
+        guard streamingSessionID == nil, let session = session else { return }
+        if let last = session.messages.last, last.role == .assistant, last.isError {
+            sessionStore.removeMessage(sessionID: session.id, messageID: last.id)
+        }
+        beginAssistantReply(sessionID: session.id)
     }
 
     private func stop() {
@@ -445,6 +496,8 @@ struct ChatView: View {
                     thinking: settings.thinking,
                     effort: settings.effort,
                     webSearch: true,
+                    systemPrompt: settings.systemPrompt,
+                    temperature: settings.temperature,
                     callbacks: callbacks
                 )
             } else {
@@ -453,6 +506,8 @@ struct ChatView: View {
                     messages: history,
                     thinking: settings.thinking,
                     effort: settings.effort,
+                    systemPrompt: settings.systemPrompt,
+                    temperature: settings.temperature,
                     callbacks: callbacks
                 )
             }

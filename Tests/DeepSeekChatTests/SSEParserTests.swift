@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import DeepSeekChat
 
 final class SSEParserTests: XCTestCase {
@@ -78,7 +79,10 @@ final class SSEParserTests: XCTestCase {
 
     func testChatMalformedShapesDoNotCrash() {
         let recorder = CallbackRecorder()
-        for json in [[String: Any](), ["choices": []], ["choices": [["delta": nil]]], ["choices": [["foo": "bar"]]]] {
+        for json in [
+            [String: Any](), ["choices": []], ["choices": [["delta": nil]]],
+            ["choices": [["foo": "bar"]]],
+        ] {
             SSEParser.process(json, kind: .chat, callbacks: recorder.callbacks)
         }
         XCTAssertTrue(recorder.deltas.isEmpty)
@@ -145,9 +149,9 @@ final class SSEParserTests: XCTestCase {
                         ["title": "A", "url": "https://a.com"],
                         ["title": "A", "url": "https://a.com"],
                         ["url": "https://b.com"],
-                        ["url": "not-a-url"]
-                    ]
-                ]
+                        ["url": "not-a-url"],
+                    ],
+                ],
             ],
             kind: .responses,
             callbacks: recorder.callbacks
@@ -163,8 +167,8 @@ final class SSEParserTests: XCTestCase {
                 "type": "response.output_item.done",
                 "item": [
                     "type": "web_search_call",
-                    "search_results": [["url": "https://c.com"]]
-                ]
+                    "search_results": [["url": "https://c.com"]],
+                ],
             ],
             kind: .responses,
             callbacks: recorder.callbacks
@@ -201,7 +205,7 @@ final class SSEParserTests: XCTestCase {
                 "type": "response.failed",
                 "response": [
                     "error": ["message": "上游出错"]
-                ]
+                ],
             ],
             kind: .responses,
             callbacks: recorder.callbacks
@@ -250,10 +254,14 @@ final class SSEParserTests: XCTestCase {
         let json: [String: Any] = [
             "response": [
                 "output": [
-                    ["web_search_call": ["search_results": [
-                        ["title": "X", "url": "https://x.com"],
-                        ["url": "https://x.com"]
-                    ]]]
+                    [
+                        "web_search_call": [
+                            "search_results": [
+                                ["title": "X", "url": "https://x.com"],
+                                ["url": "https://x.com"],
+                            ]
+                        ]
+                    ]
                 ]
             ]
         ]
@@ -269,7 +277,7 @@ final class SSEParserTests: XCTestCase {
                 ["url": "ftp://x.com"],
                 ["url": ""],
                 ["url": 42],
-                ["url": "https://ok.com"]
+                ["url": "https://ok.com"],
             ]
         ])
         XCTAssertEqual(sources.map(\.url), ["https://ok.com"])

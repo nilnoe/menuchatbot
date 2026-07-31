@@ -15,6 +15,22 @@ struct SidebarView: View {
         sessionStore.sessions.sorted { $0.updatedAt > $1.updatedAt }
     }
 
+    /// 按「今天 / 昨天 / 更早」分组，保持组内按 updatedAt 倒序。
+    private var groupedSessions: [SessionGroup] {
+        let buckets = Dictionary(grouping: sortedSessions) { session -> String in
+            let calendar = Calendar.current
+            if calendar.isDateInToday(session.updatedAt) { return "今天" }
+            if calendar.isDateInYesterday(session.updatedAt) { return "昨天" }
+            return "更早"
+        }
+        return [
+            SessionGroup(title: "今天", sessions: buckets["今天"] ?? []),
+            SessionGroup(title: "昨天", sessions: buckets["昨天"] ?? []),
+            SessionGroup(title: "更早", sessions: buckets["更早"] ?? []),
+        ]
+        .filter { !$0.sessions.isEmpty }
+    }
+
     private var currentModel: ModelInfo {
         ModelInfo.info(settings.model)
     }
@@ -34,8 +50,16 @@ struct SidebarView: View {
 
             ScrollView {
                 LazyVStack(spacing: 2) {
-                    ForEach(sortedSessions) { session in
-                        sessionRow(session)
+                    ForEach(groupedSessions) { group in
+                        Text(group.title)
+                            .font(.system(size: DesignTokens.FontSize.caption, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 8)
+                            .padding(.bottom, 2)
+                        ForEach(group.sessions) { session in
+                            sessionRow(session)
+                        }
                     }
                 }
                 .padding(.horizontal, 8)
@@ -138,6 +162,9 @@ struct SidebarView: View {
                 renameDraft = session.title
                 showRenameAlert = true
             }
+            Button("导出为 JSON…") {
+                SessionFileTransfer.exportSession(session, from: sessionStore)
+            }
             Button("删除", role: .destructive) {
                 sessionStore.deleteSession(id: session.id)
                 if selectedID == session.id {
@@ -154,5 +181,11 @@ struct SidebarView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "M/d"
         return formatter.string(from: date)
+    }
+
+    private struct SessionGroup: Identifiable {
+        let title: String
+        let sessions: [ChatSession]
+        var id: String { title }
     }
 }

@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import DeepSeekChat
 
 final class ModelsTests: XCTestCase {
@@ -34,7 +35,7 @@ final class ModelsTests: XCTestCase {
             title: "会话",
             messages: [
                 ChatMessage(role: .user, content: "a"),
-                ChatMessage(role: .assistant, content: "b", reasoning: "r")
+                ChatMessage(role: .assistant, content: "b", reasoning: "r"),
             ],
             createdAt: Date(),
             updatedAt: Date()

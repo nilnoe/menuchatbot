@@ -35,6 +35,79 @@ Beta 0.2：完成 TODO 中第一节全部 P0 性能优化与存储演进，长�
 - 新增依赖：MarkdownUI 2.4.1、GRDB.swift 6.29.3。
 - 测试从 81 增至 100，新增：SQLite 持久化 / 顺序 / 级联删除、两轮对话一致性、消息流式生命周期、Markdown 缓存、真实视图挂窗渲染冒烟（ChatView 级别两轮渲染 + 滚动越界校验）。
 
+## [0.2.1] - 2026-07-31
+
+### 新增
+
+- **设置：System Prompt 与 temperature**
+  - 可自定义系统提示词（随每次请求发送，留空用模型默认）；temperature 0~2 可调，关闭后跟随模型默认、不随请求发送。
+  - Chat Completions 通过 system 消息 / `temperature` 字段传递；Responses API 通过 `instructions` / `temperature` 传递。
+- **代码高亮（复用开源库）**
+  - 接入 HighlighterSwift 3.1（内部 highlight.js 11，185+ 语言 + 自动检测），通过 MarkdownUI 官方 `CodeSyntaxHighlighter` 协议渲染，未自写任何分词器。
+  - 明暗模式各自主题（atom-one-dark / atom-one-light），代码统一 SF Mono。
+  - 高亮结果按（语言, 内容）缓存、超长代码块（>10 万字）自动跳过高亮；流式期间走纯文本高亮器，避免每 250ms 全文重跑 JS。
+- **会话导入 / 导出（JSON）**
+  - 设置页「数据」区：导出全部会话为 JSON 备份 / 从备份导入恢复；侧边栏右键可导出单个会话。
+  - 备份带格式标识与版本号（`deepseek-chat-sessions` v1），解码或校验失败整体回滚，不产生部分导入。
+  - 导入自动重新生成会话与消息 UUID，追加到现有数据、绝不覆盖；文件面板复用系统 NSSavePanel / NSOpenPanel。
+- **工程规范**
+  - 新增 `PROJECT_SPEC.md`：核心原则「尽可能复用开源库的代码，不要自己造轮子」，含禁止造轮子清单与依赖准入流程。
+- **工程加固**
+  - CI：GitHub Actions（macOS 14）跑 `swift build` + `swift test` + swift-format lint；打 `v*` tag 时自动 release 构建并上传 .app 产物。
+  - 代码规范：接入 `swift-format`（随 Xcode 工具链自带，零新依赖）+ `.swift-format` 配置 + `.editorconfig`；全仓库格式化后 lint 零违规。
+  - 性能基线：新增 `PerformanceBaselineTests`（XCTMeasure），覆盖 Markdown 解析、SSE 解析、流式分片聚合三条关键路径，防回归。
+  - 日志：NSLog 全部替换为系统统一日志（`os_log`，subsystem `com.deepseek.chat`），Console.app / `log stream` 可查。
+  - 协作与发布：CONTRIBUTING.md、Issue/PR 模板、docs/RELEASING.md（版本号、打 tag、产物上传、正式版签名公证路径）。
+
+### 工程
+
+- 新增依赖：HighlighterSwift 3.1.0（MIT；highlight.js BSD-3-Clause）。
+- 测试从 100 增至 123：设置持久化（systemPrompt / temperature）、请求体参数（system 消息 / instructions / temperature）、高亮引擎（Swift 高亮、自动检测、缓存、超长跳过、主题回退）、代码块挂窗渲染冒烟、导入导出（往返、ID 去重、跨实例持久化、单会话导出、空库、格式 / 版本 / 非法 JSON 拒绝、失败回滚）、性能基线（Markdown / SSE / 流式聚合）。
+
+## [0.2.2] - 2026-07-31
+
+### 新增（排版规范 + 消息区/输入区美化）
+
+- **设计 token**：字号梯度（caption/callout/body）、行高 1.5、4pt 间距网格、圆角（6/10/14）、品牌蓝紫渐变统一入口，消除散落魔法数字。
+- **消息列居中**：大窗口下内容限制 780pt 居中，不再满屏拉长。
+- **消息区美化**
+  - 用户消息带头像；assistant 消息带模型标签（V4 Flash / V4 Pro）。
+  - 消息时间戳（HH:mm）轻量展示；气泡淡入 + 上移动画。
+  - 气泡宽度与文字长短协调：修复气泡被撑满整行的问题——短文本贴合文字、长文本在限宽内换行（用户气泡上限 520pt、assistant 720pt）。
+  - 右键菜单复制纯文本 / Markdown 源码（纯文本提取复用系统 `AttributedString(markdown:)`）。
+  - 错误消息红色弱化 + 重试按钮：删除末尾错误回复、重新生成最后一条用户消息的回答（新增 `SessionStore.removeMessage`，删除后重排 position）。
+  - 思考过程折叠面板渐变底；参考来源卡片化（标题 + 域名 + 外链图标）。
+- **代码块卡片**：MarkdownUI 官方 `codeBlock` 扩展点实现语言标签 + 复制按钮，正文仍是开源高亮引擎渲染。
+- **中文排版**：聊天 Markdown 主题调整标题层级、段落与引用块间距。
+- **输入区 / 侧栏 / 空状态**
+  - 输入框聚焦高亮描边；发送按钮状态不变。
+  - 侧栏按「今天 / 昨天 / 更早」分组。
+  - 空状态建议提问 chips，点击即发送。
+- **统一系统表面风格**：不叠加整窗毛玻璃——参考 ChatGPTUI / Messages 类开源聊天应用的惯例，
+  采用「系统底色 + 纯色组件」：侧边栏 / 输入框用系统标准色，用户气泡纯强调色、assistant 气泡系统控件色，
+  全界面统一 10pt 圆角与发丝描边，避免窗口材质与组件材质叠加造成的风格割裂。
+  （整窗毛玻璃暂缓，待全组件材质一致化后再做。）
+- **倒置列表观感**：隐藏镜像滚动条（倒置布局下滚动条方向相反、位置在左侧），更贴近聊天应用惯例；
+  倒置布局本身是为绕开「LazyVStack 程序化滚动到未物化区域 → 空白」缺陷而保留的取舍。
+  **短会话顶置**：利用「旋转前底部 = 旋转后顶部」给内容加 `minHeight(视口高)`，
+  首条气泡顶到视口顶部、逐条向下增长（视觉上就是正序文档）；内容超过视口后自动回到贴底跟随。
+- **默认窗口更大**：从可见区域的 75% 提升到 93%（铺满但四周留边距），视觉更舒展；
+  窗口 autosave 名称升级为 `mainPanelV2`，旧的小窗口尺寸作废一次，用户重调后仍会被记住。
+  大窗口下消息列仍限宽 780pt 居中（类 Slack/Discord 阅读列），气泡宽度上限不变。
+- **设置页收尾**
+  - 卡片化分组：系统 grouped 表单 + 滚动兜底，小窗口下内容不再被裁切。
+  - API Key 显示 / 隐藏切换（眼睛按钮），粘贴 / 核对更方便。
+  - 「测试连接」按钮：调 `GET /models` 验证 Key（新增 `DeepSeekClient.validateAPIKey()`，
+    复用现有错误解析，不写新解析逻辑），成功显示可用模型数、失败显示具体原因；
+    Key 修改后旧的连接结果自动失效。
+
+### 工程
+
+- 测试从 123 增至 140：`removeMessage` 内存 / 跨实例持久化 / 未知 ID、排版后消息形态挂窗渲染冒烟、气泡宽度布局回归（短文本贴合 / 长文本限宽换行）、倒置列表布局回归（短会话顶置 / 长会话贴底 / 顺序恒正序）、真实 ChatView 短会话墨水分布（上半墨水 > 下半）、窗口默认尺寸（93% 铺满且居中）、Key 校验（成功 / 401 拒绝 / 网络错误）、设置页挂窗渲染冒烟。
+- 版本号升至 0.2.2（`scripts/make-app.sh` Info.plist 同步）。
+
+> 注：0.2.2 的视觉改动建议真机目检明暗两套外观；CI 只保证可构建可测试。
+
 ## [0.1.0] - 2026-07-31
 
 - 初始版本：原生 macOS 菜单栏 AI 聊天应用（Beta 0.1）。
@@ -59,6 +132,14 @@ Beta 0.2：完成 TODO 中第一节全部 P0 性能优化与存储演进，长�
 **结论**：流式写回不要逐分片做；配合聚合窗口（40ms）把写回频率压到固定值，CoW 摊薄到可忽略。
 
 ## 3. 每 token 一次全文重排
+
+## 4. SwiftUI `.frame(maxWidth:)` 的两种反直觉行为
+
+- 放在 **HStack + Spacer 里的气泡**上：贪婪扩展到 maxWidth，短文本也撑满整行 → 气泡过长。
+- 放在 **VStack 内层**包内容：理想宽度为 0，容器直接塌陷。
+
+**结论**：聊天气泡要「贴合文字 + 限宽换行」，用**行级限宽**——限制整行宽度，气泡在行内自然贴合。
+行为用 GeometryReader 探针实测验证（`BubbleLayoutTests` 固化该规则），不要凭直觉改布局。
 
 即使每消息有独立 ViewModel，分片直接追加仍会让 SwiftUI `Text` 对累积全文重新排版。
 

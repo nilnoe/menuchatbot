@@ -15,6 +15,7 @@ import Security
 final class MessageState: ObservableObject, Identifiable {
     let id: UUID
     let role: Role
+    let createdAt: Date
 
     @Published private(set) var content: String
     @Published private(set) var reasoning: String?
@@ -32,6 +33,7 @@ final class MessageState: ObservableObject, Identifiable {
     init(message: ChatMessage) {
         self.id = message.id
         self.role = message.role
+        self.createdAt = message.createdAt
         self.content = message.content
         self.reasoning = message.reasoning
         self.sources = message.sources
@@ -164,20 +166,21 @@ final class SessionStore: ObservableObject {
             dbQueue = try DatabaseQueue(path: dbURL.path, configuration: configuration)
         } catch {
             // 数据库打不开时退回内存库，保证应用可用（数据不落盘）。
-            NSLog("打开会话数据库失败，改用内存库: \(error)")
+            AppLog.storage.error("打开会话数据库失败，改用内存库: \(error, privacy: .public)")
             dbQueue = try! DatabaseQueue(configuration: configuration)
         }
         do {
             try Self.migrator.migrate(dbQueue)
         } catch {
-            NSLog("初始化数据库表失败: \(error)")
+            AppLog.storage.error("初始化数据库表失败: \(error, privacy: .public)")
         }
         migrateLegacyDataIfNeeded()
         load()
     }
 
     private static func defaultDirectory() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first!
         return base.appendingPathComponent("com.deepseek.chat", isDirectory: true)
     }
 
@@ -230,7 +233,7 @@ final class SessionStore: ObservableObject {
                 )
             }
         } catch {
-            NSLog("读取会话失败: \(error)")
+            AppLog.storage.error("读取会话失败: \(error, privacy: .public)")
         }
     }
 
@@ -243,9 +246,12 @@ final class SessionStore: ObservableObject {
             let jsonURL = directory.appendingPathComponent("sessions.json")
             let legacySessions: [ChatSession]?
             if let data = try? Data(contentsOf: jsonURL),
-               let decoded = try? JSONDecoder().decode([ChatSession].self, from: data) {
+                let decoded = try? JSONDecoder().decode([ChatSession].self, from: data)
+            {
                 legacySessions = decoded
-            } else if let migrated = Migration.migrateSessions(from: directory.appendingPathComponent("state.json")) {
+            } else if let migrated = Migration.migrateSessions(
+                from: directory.appendingPathComponent("state.json"))
+            {
                 legacySessions = migrated
             } else {
                 legacySessions = nil
@@ -254,21 +260,11 @@ final class SessionStore: ObservableObject {
             guard let legacySessions else { return }
             try dbQueue.write { db in
                 for session in legacySessions {
-                    var sessionRecord = SessionRecord(
-                        id: session.id.uuidString,
-                        title: session.title,
-                        createdAt: session.createdAt,
-                        updatedAt: session.updatedAt
-                    )
-                    try sessionRecord.insert(db)
-                    for (position, message) in session.messages.enumerated() {
-                        var messageRecord = makeMessageRecord(message, sessionID: session.id, position: position)
-                        try messageRecord.insert(db)
-                    }
+                    try insertSession(session, into: db)
                 }
             }
         } catch {
-            NSLog("迁移旧会话数据失败: \(error)")
+            AppLog.storage.error("迁移旧会话数据失败: \(error, privacy: .public)")
         }
     }
 
@@ -295,7 +291,7 @@ final class SessionStore: ObservableObject {
                 try record.insert(db)
             }
         } catch {
-            NSLog("创建会话写库失败: \(error)")
+            AppLog.storage.error("创建会话写库失败: \(error, privacy: .public)")
         }
         objectWillChange.send()
         return session
@@ -316,7 +312,41 @@ final class SessionStore: ObservableObject {
                 try SessionRecord.deleteOne(db, key: id.uuidString)
             }
         } catch {
-            NSLog("删除会话写库失败: \(error)")
+            AppLog.storage.error("删除会话写库失败: \(error, privacy: .public)")
+        }
+        objectWillChange.send()
+    }
+
+    /// 删除单条消息（重试场景：清掉末尾的错误回复后重新生成）。
+    /// 删除后重排剩余消息的 position，保持数据库顺序连续。
+    func removeMessage(sessionID: UUID, messageID: UUID) {
+        guard
+            let sessionIndex = sessions.firstIndex(where: { $0.id == sessionID }),
+            let messageIndex = sessions[sessionIndex].messages.firstIndex(where: {
+                $0.id == messageID
+            })
+        else { return }
+
+        sessions[sessionIndex].messages.remove(at: messageIndex)
+        sessions[sessionIndex].updatedAt = Date()
+        messageStates.removeValue(forKey: messageID)
+
+        do {
+            try dbQueue.write { db in
+                try MessageRecord.deleteOne(db, key: messageID.uuidString)
+                for (position, message) in sessions[sessionIndex].messages.enumerated() {
+                    var record = makeMessageRecord(
+                        message,
+                        sessionID: sessionID,
+                        position: position
+                    )
+                    try record.upsert(db)
+                }
+                try touchSession(
+                    db, sessionID: sessionID, updatedAt: sessions[sessionIndex].updatedAt)
+            }
+        } catch {
+            AppLog.storage.error("删除消息写库失败: \(error, privacy: .public)")
         }
         objectWillChange.send()
     }
@@ -332,7 +362,7 @@ final class SessionStore: ObservableObject {
                 )
             }
         } catch {
-            NSLog("重命名会话写库失败: \(error)")
+            AppLog.storage.error("重命名会话写库失败: \(error, privacy: .public)")
         }
         objectWillChange.send()
     }
@@ -348,23 +378,98 @@ final class SessionStore: ObservableObject {
             .map { APIMessage(role: $0.role.rawValue, content: $0.content) }
     }
 
+    // MARK: - 导入 / 导出
+
+    /// 导出全部会话为 JSON 备份数据。
+    func exportJSON() throws -> Data {
+        let export = SessionExport(sessions: sessions)
+        return try JSONEncoder().encode(export)
+    }
+
+    /// 导出单个会话为 JSON 备份数据。
+    func exportSessionJSON(id: UUID) throws -> Data? {
+        guard let session = session(id: id) else { return nil }
+        let export = SessionExport(sessions: [session])
+        return try JSONEncoder().encode(export)
+    }
+
+    /// 从 JSON 备份导入会话。
+    ///
+    /// 安全策略：导入的会话与消息一律重新生成 UUID，避免与现有数据冲突；
+    /// 解码或校验失败则整体回滚，不写入任何部分数据。
+    func importJSON(_ data: Data) throws -> SessionImportResult {
+        let export: SessionExport
+        do {
+            export = try JSONDecoder().decode(SessionExport.self, from: data)
+        } catch {
+            throw SessionImportError.decodingFailed(error.localizedDescription)
+        }
+        guard export.format == SessionExport.formatID else {
+            throw SessionImportError.unsupportedFormat
+        }
+        guard export.version == SessionExport.currentVersion else {
+            throw SessionImportError.unsupportedVersion(export.version)
+        }
+
+        // 重新生成所有 UUID（会话与消息），保证不覆盖现有数据。
+        let imported = export.sessions.map { session in
+            ChatSession(
+                id: UUID(),
+                title: session.title,
+                messages: session.messages.map { message in
+                    ChatMessage(
+                        id: UUID(),
+                        role: message.role,
+                        content: message.content,
+                        reasoning: message.reasoning,
+                        sources: message.sources,
+                        isSearching: false,
+                        isError: false,
+                        createdAt: message.createdAt
+                    )
+                },
+                createdAt: session.createdAt,
+                updatedAt: session.updatedAt
+            )
+        }
+
+        // 先全部写库成功后再改内存态；写库失败则抛错，不产生部分导入。
+        try dbQueue.write { db in
+            for session in imported {
+                try insertSession(session, into: db)
+            }
+        }
+        // 保持文件顺序：逆序逐个插到数组头部。
+        for session in imported.reversed() {
+            sessions.insert(session, at: 0)
+        }
+        objectWillChange.send()
+
+        return SessionImportResult(
+            importedSessions: imported.count,
+            importedMessages: imported.reduce(0) { $0 + $1.messages.count }
+        )
+    }
+
     func appendMessage(sessionID: UUID, _ message: ChatMessage) {
         guard let index = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
         sessions[index].messages.append(message)
         sessions[index].updatedAt = Date()
         do {
             try dbQueue.write { db in
-                let position = try Int.fetchOne(
-                    db,
-                    sql: "SELECT COALESCE(MAX(position), -1) + 1 FROM message WHERE sessionID = ?",
-                    arguments: [sessionID.uuidString]
-                ) ?? 0
+                let position =
+                    try Int.fetchOne(
+                        db,
+                        sql:
+                            "SELECT COALESCE(MAX(position), -1) + 1 FROM message WHERE sessionID = ?",
+                        arguments: [sessionID.uuidString]
+                    ) ?? 0
                 var record = makeMessageRecord(message, sessionID: sessionID, position: position)
                 try record.insert(db)
                 try touchSession(db, sessionID: sessionID, updatedAt: sessions[index].updatedAt)
             }
         } catch {
-            NSLog("追加消息写库失败: \(error)")
+            AppLog.storage.error("追加消息写库失败: \(error, privacy: .public)")
         }
         objectWillChange.send()
     }
@@ -372,7 +477,9 @@ final class SessionStore: ObservableObject {
     func updateMessage(sessionID: UUID, messageID: UUID, _ mutate: (inout ChatMessage) -> Void) {
         guard
             let sessionIndex = sessions.firstIndex(where: { $0.id == sessionID }),
-            let messageIndex = sessions[sessionIndex].messages.firstIndex(where: { $0.id == messageID })
+            let messageIndex = sessions[sessionIndex].messages.firstIndex(where: {
+                $0.id == messageID
+            })
         else { return }
         mutate(&sessions[sessionIndex].messages[messageIndex])
         sessions[sessionIndex].updatedAt = Date()
@@ -399,7 +506,9 @@ final class SessionStore: ObservableObject {
     func syncMessage(_ state: MessageState, sessionID: UUID) {
         guard
             let sessionIndex = sessions.firstIndex(where: { $0.id == sessionID }),
-            let messageIndex = sessions[sessionIndex].messages.firstIndex(where: { $0.id == state.id })
+            let messageIndex = sessions[sessionIndex].messages.firstIndex(where: {
+                $0.id == state.id
+            })
         else { return }
         sessions[sessionIndex].messages[messageIndex].content = state.content
         sessions[sessionIndex].messages[messageIndex].reasoning = state.reasoning
@@ -424,7 +533,9 @@ final class SessionStore: ObservableObject {
     // MARK: - SQLite 写入辅助
 
     /// 单行写入：更新一条消息 + 会话 updatedAt，无需整库序列化。
-    private func persistMessage(_ message: ChatMessage, sessionID: UUID, position: Int, updatedAt: Date) {
+    private func persistMessage(
+        _ message: ChatMessage, sessionID: UUID, position: Int, updatedAt: Date
+    ) {
         do {
             try dbQueue.write { db in
                 var record = makeMessageRecord(message, sessionID: sessionID, position: position)
@@ -432,7 +543,7 @@ final class SessionStore: ObservableObject {
                 try touchSession(db, sessionID: sessionID, updatedAt: updatedAt)
             }
         } catch {
-            NSLog("更新消息写库失败: \(error)")
+            AppLog.storage.error("更新消息写库失败: \(error, privacy: .public)")
         }
     }
 
@@ -443,7 +554,9 @@ final class SessionStore: ObservableObject {
         )
     }
 
-    private func makeMessageRecord(_ message: ChatMessage, sessionID: UUID, position: Int) -> MessageRecord {
+    private func makeMessageRecord(_ message: ChatMessage, sessionID: UUID, position: Int)
+        -> MessageRecord
+    {
         MessageRecord(
             id: message.id.uuidString,
             sessionID: sessionID.uuidString,
@@ -459,6 +572,22 @@ final class SessionStore: ObservableObject {
             position: position
         )
     }
+
+    /// 把整个会话（含全部消息）写入数据库，供迁移与导入复用。
+    private func insertSession(_ session: ChatSession, into db: Database) throws {
+        var sessionRecord = SessionRecord(
+            id: session.id.uuidString,
+            title: session.title,
+            createdAt: session.createdAt,
+            updatedAt: session.updatedAt
+        )
+        try sessionRecord.insert(db)
+        for (position, message) in session.messages.enumerated() {
+            var messageRecord = makeMessageRecord(
+                message, sessionID: session.id, position: position)
+            try messageRecord.insert(db)
+        }
+    }
 }
 
 final class SettingsStore: ObservableObject {
@@ -473,6 +602,20 @@ final class SettingsStore: ObservableObject {
     }
     @Published var webSearch: Bool {
         didSet { defaults.set(webSearch, forKey: "webSearch") }
+    }
+    /// 自定义系统提示词（System Prompt）。空字符串 = 使用模型默认。
+    @Published var systemPrompt: String {
+        didSet { defaults.set(systemPrompt, forKey: "systemPrompt") }
+    }
+    /// temperature（0~2）；nil = 跟随模型默认，不随请求发送。
+    @Published var temperature: Double? {
+        didSet {
+            if let temperature {
+                defaults.set(temperature, forKey: "temperature")
+            } else {
+                defaults.removeObject(forKey: "temperature")
+            }
+        }
     }
     @Published var apiKey: String {
         didSet {
@@ -513,6 +656,12 @@ final class SettingsStore: ObservableObject {
         thinking = defaults.object(forKey: "thinking") as? Bool ?? true
         effort = Effort(rawValue: defaults.string(forKey: "effort") ?? "") ?? .high
         webSearch = defaults.bool(forKey: "webSearch")
+        systemPrompt = defaults.string(forKey: "systemPrompt") ?? ""
+        if defaults.object(forKey: "temperature") != nil {
+            temperature = defaults.double(forKey: "temperature")
+        } else {
+            temperature = nil
+        }
         apiKey = keychain.read(account: "apiKey") ?? ""
     }
 
@@ -545,7 +694,7 @@ struct KeychainStore: KeychainStoring {
             kSecAttrService as String: Self.service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
+            kSecMatchLimit as String: kSecMatchLimitOne,
         ]
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
@@ -558,7 +707,7 @@ struct KeychainStore: KeychainStoring {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.service,
-            kSecAttrAccount as String: account
+            kSecAttrAccount as String: account,
         ]
         let attributes: [String: Any] = [kSecValueData as String: data]
         let status = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
@@ -573,7 +722,7 @@ struct KeychainStore: KeychainStoring {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: Self.service,
-            kSecAttrAccount as String: account
+            kSecAttrAccount as String: account,
         ]
         SecItemDelete(query as CFDictionary)
     }

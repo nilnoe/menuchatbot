@@ -42,22 +42,58 @@ struct DeepSeekClient {
         self.session = session
     }
 
+    /// 校验 API Key：调 GET /models，成功返回可用模型 ID 列表。
+    /// 设置页「测试连接」复用此接口，避免为校验单独写造轮子的逻辑。
+    func validateAPIKey() async throws -> [String] {
+        guard let url = URL(string: baseURL + "/models") else {
+            throw DeepSeekError.invalidURL
+        }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw DeepSeekError.requestFailed("无效的服务器响应")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            let text = String(data: data, encoding: .utf8) ?? ""
+            throw DeepSeekError.requestFailed(SSEParser.parseError(text))
+        }
+        guard
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let models = json["data"] as? [[String: Any]]
+        else {
+            throw DeepSeekError.requestFailed("响应格式异常")
+        }
+        return models.compactMap { $0["id"] as? String }
+    }
+
     /// Chat Completions 接口（普通对话 / 思考模式）
     func chatCompletions(
         model: String,
         messages: [APIMessage],
         thinking: Bool,
         effort: Effort,
+        systemPrompt: String = "",
+        temperature: Double? = nil,
         callbacks: StreamCallbacks
     ) async throws {
+        var requestMessages = messages
+        if !systemPrompt.isEmpty {
+            requestMessages.insert(APIMessage(role: "system", content: systemPrompt), at: 0)
+        }
         var body: [String: Any] = [
             "model": model,
-            "messages": messages.map { ["role": $0.role, "content": $0.content] },
+            "messages": requestMessages.map { ["role": $0.role, "content": $0.content] },
             "stream": true,
-            "thinking": ["type": thinking ? "enabled" : "disabled"]
+            "thinking": ["type": thinking ? "enabled" : "disabled"],
         ]
         if thinking {
             body["reasoning_effort"] = effort.rawValue
+        }
+        if let temperature {
+            body["temperature"] = temperature
         }
         try await stream(path: "/chat/completions", body: body, kind: .chat, callbacks: callbacks)
     }
@@ -69,14 +105,22 @@ struct DeepSeekClient {
         thinking: Bool,
         effort: Effort,
         webSearch: Bool,
+        systemPrompt: String = "",
+        temperature: Double? = nil,
         callbacks: StreamCallbacks
     ) async throws {
         var body: [String: Any] = [
             "model": model,
             "input": input.map { ["role": $0.role, "content": $0.content] },
             "stream": true,
-            "reasoning": ["effort": thinking ? effort.rawValue : "none"]
+            "reasoning": ["effort": thinking ? effort.rawValue : "none"],
         ]
+        if !systemPrompt.isEmpty {
+            body["instructions"] = systemPrompt
+        }
+        if let temperature {
+            body["temperature"] = temperature
+        }
         if webSearch {
             body["tools"] = [["type": "web_search"]]
         }

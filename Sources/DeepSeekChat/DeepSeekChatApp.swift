@@ -150,31 +150,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.contentMinSize = NSSize(width: 640, height: 480)
         panel.delegate = self
         panel.isMovableByWindowBackground = false
-        // 首次启动默认占屏幕四分之三并居中；之后记住用户调整过的位置与大小
-        if !panel.setFrameUsingName("mainPanel") {
+        // 默认铺满可见区域约 93%（四周留边距，视觉舒展）；之后记住用户调整过的位置与大小。
+        // autosave 名称从 mainPanel 升级为 mainPanelV2：旧版本保存的小窗口尺寸作废一次，
+        // 让本次默认尺寸真正生效；用户重调后仍会按新名称记住。
+        if !panel.setFrameUsingName("mainPanelV2") {
             applyDefaultFrame()
         }
-        panel.setFrameAutosaveName("mainPanel")
+        panel.setFrameAutosaveName("mainPanelV2")
 
         let root = ContentView()
             .environmentObject(sessionStore)
             .environmentObject(settingsStore)
+        // 统一系统表面风格：不叠加整窗毛玻璃。
+        // 参考 ChatGPTUI / Messages 类聊天应用的惯例——系统底色 + 纯色组件，
+        // 避免窗口材质与内部组件互相叠加造成风格割裂。
         panel.contentViewController = NSHostingController(rootView: root)
     }
 
-    /// 默认尺寸：主屏可见区域（去掉菜单栏 / Dock）的 3/4，居中
+    /// 默认尺寸：主屏可见区域（去掉菜单栏 / Dock）的 93%，居中
     private func applyDefaultFrame() {
         guard let screen = NSScreen.main else { return }
-        let visible = screen.visibleFrame
-        let width = visible.width * 0.75
-        let height = visible.height * 0.75
-        let frame = NSRect(
-            x: visible.midX - width / 2,
-            y: visible.midY - height / 2,
-            width: width,
-            height: height
-        )
-        panel.setFrame(frame, display: false)
+        panel.setFrame(PanelSizing.defaultFrame(for: screen.visibleFrame), display: false)
+    }
+
+    /// 窗口默认尺寸计算（独立成纯函数，便于单测）。
+    enum PanelSizing {
+        /// 默认占可见区域的比值：铺满但四周留边距。
+        static let defaultFillRatio: CGFloat = 0.93
+
+        static func defaultFrame(for visible: NSRect) -> NSRect {
+            let width = visible.width * defaultFillRatio
+            let height = visible.height * defaultFillRatio
+            return NSRect(
+                x: visible.midX - width / 2,
+                y: visible.midY - height / 2,
+                width: width,
+                height: height
+            )
+        }
     }
 
     private func togglePanel() {

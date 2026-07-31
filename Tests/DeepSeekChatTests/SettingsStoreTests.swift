@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import DeepSeekChat
 
 final class SettingsStoreTests: XCTestCase {
@@ -35,12 +36,16 @@ final class SettingsStoreTests: XCTestCase {
         store.thinking = false
         store.effort = .max
         store.webSearch = true
+        store.systemPrompt = "你是一位资深 Swift 工程师"
+        store.temperature = 0.7
 
         let reloaded = makeStore()
         XCTAssertEqual(reloaded.model, "deepseek-v4-pro")
         XCTAssertFalse(reloaded.thinking)
         XCTAssertEqual(reloaded.effort, .max)
         XCTAssertTrue(reloaded.webSearch)
+        XCTAssertEqual(reloaded.systemPrompt, "你是一位资深 Swift 工程师")
+        XCTAssertEqual(reloaded.temperature, 0.7)
     }
 
     func testDefaultsWhenNothingSaved() {
@@ -49,8 +54,21 @@ final class SettingsStoreTests: XCTestCase {
         XCTAssertTrue(store.thinking)
         XCTAssertEqual(store.effort, .high)
         XCTAssertFalse(store.webSearch)
+        XCTAssertEqual(store.systemPrompt, "")
+        XCTAssertNil(store.temperature)
         XCTAssertEqual(store.apiKey, "")
         XCTAssertFalse(store.keyConfigured)
+    }
+
+    func testClearingTemperatureReturnsToModelDefault() {
+        let store = makeStore()
+        store.temperature = 1.5
+        XCTAssertEqual(store.temperature, 1.5)
+        store.temperature = nil
+        XCTAssertNil(store.temperature)
+
+        let reloaded = makeStore()
+        XCTAssertNil(reloaded.temperature)
     }
 
     func testLegacyModelNamesMigrated() {
