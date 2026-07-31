@@ -144,66 +144,21 @@ struct SidebarView: View {
     }
 
     private func sessionRow(_ session: ChatSession) -> some View {
-        let isSelected = selectedID == session.id
-        let isHovered = hoveredSessionID == session.id
-
-        return ZStack(alignment: .trailing) {
-            Button {
-                selectedID = session.id
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: sessionIcon(session))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
-                        .frame(width: 16)
-
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(session.title.isEmpty ? "新对话" : session.title)
-                            .font(.callout)
-                            .lineLimit(1)
-                        HStack(spacing: 6) {
-                            Text(relativeDate(session.updatedAt))
-                            Text("\(session.messages.count) 条")
-                            if let totalTokens = sessionTotalTokens(session) {
-                                Text("· \(TokenUsage.compact(totalTokens)) tokens")
-                            }
-                        }
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    // hover 时给右侧快捷按钮留位，避免文字被覆盖
-                    .padding(.trailing, isHovered ? 44 : 0)
-                }
-                .padding(8)
-                .background(
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(rowBackground(isSelected: isSelected, isHovered: isHovered))
-                )
-            }
-            .buttonStyle(.plain)
-
-            if isHovered {
-                HStack(spacing: 2) {
-                    quickActionButton(
-                        systemImage: session.isPinned ? "pin.slash" : "pin",
-                        help: session.isPinned ? "取消置顶" : "置顶"
-                    ) {
-                        sessionStore.setPinned(id: session.id, pinned: !session.isPinned)
-                    }
-                    quickActionButton(systemImage: "pencil", help: "重命名") {
-                        renameTargetID = session.id
-                        renameDraft = session.title
-                        showRenameAlert = true
-                    }
-                    quickActionButton(systemImage: "trash", help: "删除", destructive: true) {
-                        deleteSession(session)
-                    }
-                }
-                .padding(.trailing, 8)
-                .transition(.opacity)
-            }
-        }
+        SidebarSessionRow(
+            session: session,
+            isSelected: selectedID == session.id,
+            isHovered: hoveredSessionID == session.id,
+            onSelect: { selectedID = session.id },
+            onTogglePin: {
+                sessionStore.setPinned(id: session.id, pinned: !session.isPinned)
+            },
+            onRename: {
+                renameTargetID = session.id
+                renameDraft = session.title
+                showRenameAlert = true
+            },
+            onDelete: { deleteSession(session) }
+        )
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.12)) {
                 hoveredSessionID = hovering ? session.id : nil
@@ -227,7 +182,107 @@ struct SidebarView: View {
         }
     }
 
-    private func rowBackground(isSelected: Bool, isHovered: Bool) -> Color {
+    private func deleteSession(_ session: ChatSession) {
+        sessionStore.deleteSession(id: session.id)
+        if selectedID == session.id {
+            selectedID = sessionStore.sessions.first?.id
+        }
+    }
+
+    private struct SessionGroup: Identifiable {
+        let title: String
+        let sessions: [ChatSession]
+        var id: String { title }
+    }
+}
+
+/// 侧栏会话行：标题 / 信息（日期 · 条数、tokens 独立子行）与 hover 快捷操作。
+///
+/// 独立成结构体（而非 SidebarView 私有函数）是为了让布局回归测试可以直接
+/// 以「强制 hover」状态渲染，验证文字与快捷按钮不重叠。
+struct SidebarSessionRow: View {
+    let session: ChatSession
+    let isSelected: Bool
+    let isHovered: Bool
+    let onSelect: () -> Void
+    let onTogglePin: () -> Void
+    let onRename: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            Button(action: onSelect) {
+                HStack(spacing: 8) {
+                    Image(systemName: icon)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                        .frame(width: 16)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(session.title.isEmpty ? "新对话" : session.title)
+                            .font(.callout)
+                            .lineLimit(1)
+                        HStack(spacing: 6) {
+                            Text(relativeDate)
+                            Text("\(session.messages.count) 条")
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        // tokens 独立子行：不再与日期 / 条数挤在同一行，
+                        // 也避免 hover 时被快捷按钮截断。
+                        if let totalTokens = totalTokens {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chart.bar")
+                                    .font(.system(size: 9))
+                                Text("\(TokenUsage.compact(totalTokens)) tokens")
+                            }
+                            .font(.system(size: DesignTokens.FontSize.caption - 1))
+                            .foregroundStyle(.tertiary)
+                            .padding(.top, 1)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // hover 时预留与快捷按钮组实宽一致的位，避免文字被覆盖。
+                    // （0.2.2 曾用 44pt 估算，小于三按钮实际宽度导致重叠。）
+                    .padding(
+                        .trailing,
+                        isHovered ? DesignTokens.Sidebar.quickActionsReservedWidth : 0
+                    )
+                }
+                .padding(8)
+                .background(
+                    RoundedRectangle(cornerRadius: 7)
+                        .fill(rowBackground)
+                )
+            }
+            .buttonStyle(.plain)
+
+            if isHovered {
+                HStack(spacing: DesignTokens.Sidebar.quickActionSpacing) {
+                    quickActionButton(
+                        systemImage: session.isPinned ? "pin.slash" : "pin",
+                        help: session.isPinned ? "取消置顶" : "置顶",
+                        action: onTogglePin
+                    )
+                    quickActionButton(
+                        systemImage: "pencil",
+                        help: "重命名",
+                        action: onRename
+                    )
+                    quickActionButton(
+                        systemImage: "trash",
+                        help: "删除",
+                        destructive: true,
+                        action: onDelete
+                    )
+                }
+                .padding(.trailing, DesignTokens.Sidebar.quickActionsTrailingPadding)
+                .transition(.opacity)
+            }
+        }
+    }
+
+    private var rowBackground: Color {
         if isSelected {
             return Color.accentColor.opacity(0.16)
         }
@@ -237,17 +292,26 @@ struct SidebarView: View {
         return Color.clear
     }
 
-    private func sessionIcon(_ session: ChatSession) -> String {
-        // 最近一条消息带参考来源（联网搜索过）的会话用地球图标区分
+    /// 最近一条消息带参考来源（联网搜索过）的会话用地球图标区分。
+    private var icon: String {
         if session.messages.last?.sources?.isEmpty == false {
             return "globe"
         }
         return "bubble.left"
     }
 
-    private func sessionTotalTokens(_ session: ChatSession) -> Int? {
+    private var totalTokens: Int? {
         let total = session.messages.reduce(0) { $0 + ($1.usage?.totalTokens ?? 0) }
         return total > 0 ? total : nil
+    }
+
+    private var relativeDate: String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(session.updatedAt) { return "今天" }
+        if calendar.isDateInYesterday(session.updatedAt) { return "昨天" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M/d"
+        return formatter.string(from: session.updatedAt)
     }
 
     private func quickActionButton(
@@ -259,32 +323,13 @@ struct SidebarView: View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: 11, weight: .medium))
-                .frame(width: 18, height: 18)
+                .frame(
+                    width: DesignTokens.Sidebar.quickActionButtonSize,
+                    height: DesignTokens.Sidebar.quickActionButtonSize
+                )
         }
         .buttonStyle(.plain)
         .foregroundStyle(destructive ? Color.red : Color.secondary)
         .help(help)
-    }
-
-    private func deleteSession(_ session: ChatSession) {
-        sessionStore.deleteSession(id: session.id)
-        if selectedID == session.id {
-            selectedID = sessionStore.sessions.first?.id
-        }
-    }
-
-    private func relativeDate(_ date: Date) -> String {
-        let calendar = Calendar.current
-        if calendar.isDateInToday(date) { return "今天" }
-        if calendar.isDateInYesterday(date) { return "昨天" }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "M/d"
-        return formatter.string(from: date)
-    }
-
-    private struct SessionGroup: Identifiable {
-        let title: String
-        let sessions: [ChatSession]
-        var id: String { title }
     }
 }

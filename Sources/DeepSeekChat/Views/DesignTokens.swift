@@ -41,6 +41,23 @@ enum DesignTokens {
     /// assistant 气泡最大宽度（Markdown 阅读需要更宽）。
     static let assistantBubbleMaxWidth: CGFloat = 720
 
+    // MARK: - 侧栏（会话列表）
+    enum Sidebar {
+        /// 侧栏固定宽度（ContentView 引用；调宽只改这里）。
+        static let width: CGFloat = 176
+
+        /// hover 快捷按钮组：置顶 / 重命名 / 删除。
+        static let quickActionButtonSize: CGFloat = 18
+        static let quickActionSpacing: CGFloat = 2
+        static let quickActionsTrailingPadding: CGFloat = 8
+
+        /// 三个快捷按钮 + 间隔 + 尾部留白的总宽度。
+        /// hover 时正文据此预留位，保证文字不被按钮覆盖（与实测按钮组宽度一致）。
+        static var quickActionsReservedWidth: CGFloat {
+            quickActionButtonSize * 3 + quickActionSpacing * 2 + quickActionsTrailingPadding
+        }
+    }
+
     /// 品牌渐变（蓝 → 紫）：只用于头像 / 点缀，不铺满。
     static let brandGradient = LinearGradient(
         colors: [.blue, .purple],

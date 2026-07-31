@@ -20,7 +20,7 @@ struct ContentView: View {
                             selectedID: $selectedID,
                             showSettings: $showSettings
                         )
-                        .frame(width: 176)
+                        .frame(width: DesignTokens.Sidebar.width)
                         .background(Color(nsColor: .controlBackgroundColor))
                     }
                     ChatView(
