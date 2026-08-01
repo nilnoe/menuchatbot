@@ -75,7 +75,11 @@ final class ModelsTests: XCTestCase {
             cachedInputPricePerMillion: 0.0028,
             outputPricePerMillion: 0.28
         )
-        let expected = (400 * 0.14 + 600 * 0.0028 + 500 * 0.28) / 1_000_000
+        // 拆分中间量：混合算术表达式在部分编译器上会触发类型检查超时。
+        let promptCost = 400 * 0.14
+        let cachedCost = 600 * 0.0028
+        let completionCost = 500 * 0.28
+        let expected = (promptCost + cachedCost + completionCost) / 1_000_000
         XCTAssertEqual(cost, expected, accuracy: 1e-9)
     }
 

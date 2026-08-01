@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
 
 jobs:
@@ -12,7 +13,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Lint
-        run: swift format lint --recursive --strict Sources Tests
+        run: |
+          # runner 默认 toolchain 的 `swift` 子命令不含 swift-format
+          brew install swift-format
+          swift-format lint --recursive --strict Sources Tests
 
   test:
     name: Build & Test
