@@ -5,6 +5,10 @@ on:
     branches: [main]
     tags: ['v*']
   pull_request:
+  schedule:
+    # 每周一 03:00 UTC：cron fuzz（AU-16）与供应链扫描兜底
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
 
 jobs:
   lint:
@@ -31,7 +35,38 @@ jobs:
       - name: Clippy
         run: cargo clippy --manifest-path RustCore/Cargo.toml --all-targets -- -D warnings
       - name: Rust tests
-        run: cargo test --manifest-path RustCore/Cargo.toml --release
+        # --test-threads=1：审计计数器为进程级全局状态，串行保证 AU-13/14 精确断言
+        run: cargo test --manifest-path RustCore/Cargo.toml --release -- --test-threads=1
+      - name: Audit dependencies (cargo audit)
+        uses: actions-rust-lang/audit@v1
+        with:
+          manifest-path: RustCore/Cargo.toml
+
+  fuzz:
+    name: Rust Fuzz (cron, AU-16)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Fuzz dc_eval_expr boundary
+        run: cd RustCore/fuzz && cargo fuzz run fuzz_eval_expr -- -runs=100000 -max_total_time=300
+      - name: Fuzz dc_index_upsert boundary
+        run: cd RustCore/fuzz && cargo fuzz run fuzz_index_upsert -- -runs=100000 -max_total_time=300
+
+  asan:
+    name: FFI Tests (Address Sanitizer, AU-14)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - name: Build Rust core (debug)
+        run: MODE=debug ./scripts/build-rust-core.sh
+      - name: FFI tests under ASan
+        run: swift test --sanitize=address --filter RustCoreFFIIntegrationTests
 
   scale:
     name: Scale Check

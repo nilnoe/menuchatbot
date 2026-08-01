@@ -68,6 +68,17 @@ int dc_index_last_error(dc_index *ix, char *buf, size_t len);
    out_json = {"ok":false,"error":"..."}（不 panic）。 */
 int dc_eval_expr(const char *expr_json, char **out_json, void (*dc_free_cb)(void *));
 
+/* ---- 审计与可观测性（ADR-0009 P2）---- */
+
+/* 一次性安装 panic hook 并设置崩溃日志路径（可传 NULL = 不落文件）。
+ * 幂等：进程内多次调用只安装一次。 */
+void dc_audit_init(const char *log_path);
+
+/* 导出审计快照：{"version","total_calls","outstanding_allocations",
+ * "panic_count","error_counts","recent_panics"}；JSON 由 dc_free 释放。
+ * stub 降级环境返回 DC_ERR_UNAVAILABLE 且 out_json 置 NULL。 */
+int dc_audit_snapshot(char **out_json);
+
 /* ---- 内存所有权 ---- */
 
 /* 释放本库分配的输出 JSON；与 dc_index_search / dc_index_status /

@@ -90,6 +90,8 @@ int dc_index_search(dc_index *ix, const char *query, const char *options_json,
 int dc_index_rebuild(dc_index *ix, const char *source_path);         // 从快照重建
 int dc_index_status(dc_index *ix, char **out_json);
 int dc_eval_expr(const char *expr_json, char **out_json, void (*dc_free)(void *));
+void dc_audit_init(const char *log_path);                            // panic hook + 崩溃日志（幂等）
+int  dc_audit_snapshot(char **out_json);                             // 计数器 + panic 环形缓冲
 
 void dc_index_cancel(dc_index *ix);                                  // 原子取消标志
 int  dc_index_last_error(dc_index *ix, char *buf, size_t len);
@@ -100,13 +102,17 @@ int  dc_index_last_error(dc_index *ix, char *buf, size_t len);
 - 返回 int32 错误码（0=OK，负数=错误），详情走 `dc_index_last_error`；
 - 长任务（重建、批量 embedding）提供 `dc_index_cancel`（原子标志）与
   进度回调（C 函数指针），Swift 侧转 `AsyncStream`。
+- 审计（ADR-0009 P2）：`dc_audit_init` 一次性安装 panic hook 并把现场
+  写入环形缓冲与崩溃日志（`panic=abort` 语义不变）；`dc_audit_snapshot`
+  导出错误码计数 / 调用计数 / 未释放分配数 / panic 列表，供 Swift 侧
+  `AuditCenter` 增量采集为 `ffi.*` 事件。
 
 ### 4.3 内存所有权
 
 | 数据 | 谁分配 | 谁释放 | 说明 |
 |---|---|---|---|
 | 输入 JSON | Swift（`withCString`） | Swift 自动 | Rust 同步拷贝，调用期间内存有效即可 |
-| 输出 JSON | Rust | Swift 调 `dc_free` | 必须成对，封装在 `RustIndexService` 内部 |
+| 输出 JSON | Rust | Swift 调 `dc_free` | 必须成对，封装在 `RustIndexService` 内部；分配计数由 `dc_audit_snapshot` 暴露，FFI 测试断言归零（AU-14） |
 | 句柄 | Rust | Rust（`dc_index_close`） | Swift 侧 actor 关闭 / deinit 时释放 |
 
 ### 4.4 panic 与错误

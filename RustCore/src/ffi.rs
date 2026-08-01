@@ -8,6 +8,7 @@
 //! - 输出 JSON 由 Rust 分配，Swift 侧必须调用 `dc_free` 成对释放。
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
+use crate::audit;
 use crate::eval;
 use crate::index::{IndexCore, INDEX_VERSION};
 use crate::json::{self, Json};
@@ -54,6 +55,7 @@ unsafe fn write_out(s: &str, out: *mut *mut c_char) -> Result<(), String> {
     }
     let c = CString::new(s).map_err(|_| "output contains NUL byte".to_string())?;
     *out = c.into_raw();
+    audit::record_allocated();
     Ok(())
 }
 
@@ -94,7 +96,7 @@ fn error_code_for(msg: &str) -> c_int {
 }
 
 fn result_to_code(ix: *mut dc_index, result: Result<(), String>) -> c_int {
-    match result {
+    let code = match result {
         Ok(()) => DC_OK,
         Err(msg) => {
             if !ix.is_null() {
@@ -102,7 +104,9 @@ fn result_to_code(ix: *mut dc_index, result: Result<(), String>) -> c_int {
             }
             error_code_for(&msg)
         }
-    }
+    };
+    audit::record_error(code);
+    code
 }
 
 /// 解析 config JSON；非法 JSON 或版本不匹配返回 None（open 失败路径，
@@ -134,6 +138,7 @@ fn parse_config(config_json: *const c_char) -> Option<(String, i32)> {
 /// 失败（非法 JSON）返回 NULL，Swift 侧进入 `.unavailable` 降级。
 #[no_mangle]
 pub extern "C" fn dc_index_open(path: *const c_char, config_json: *const c_char) -> *mut dc_index {
+    audit::record_call();
     let _ = path; // 骨架阶段不落盘；Tier 3 在此写索引文件
     let Some((namespace, _)) = parse_config(config_json) else {
         return std::ptr::null_mut();
@@ -143,12 +148,15 @@ pub extern "C" fn dc_index_open(path: *const c_char, config_json: *const c_char)
         cancelled: AtomicBool::new(false),
         last_error: Mutex::new(String::new()),
     };
+    audit::record_allocated();
     Box::into_raw(Box::new(handle))
 }
 
 #[no_mangle]
 pub extern "C" fn dc_index_close(ix: *mut dc_index) {
+    audit::record_call();
     if !ix.is_null() {
+        audit::record_freed();
         unsafe {
             drop(Box::from_raw(ix));
         }
@@ -160,6 +168,7 @@ pub extern "C" fn dc_index_close(ix: *mut dc_index) {
 /// 写入 / 更新一条文档：`message_json = {"id": "...", "content": "...", "namespace"?: "..."}`。
 #[no_mangle]
 pub extern "C" fn dc_index_upsert(ix: *mut dc_index, message_json: *const c_char) -> c_int {
+    audit::record_call();
     let result = (|| -> Result<(), String> {
         let handle = unsafe { index_ref(ix) }?;
         if is_cancelled(handle) {
@@ -193,6 +202,7 @@ pub extern "C" fn dc_index_upsert(ix: *mut dc_index, message_json: *const c_char
 
 #[no_mangle]
 pub extern "C" fn dc_index_delete(ix: *mut dc_index, message_id: *const c_char) -> c_int {
+    audit::record_call();
     let result = (|| -> Result<(), String> {
         let handle = unsafe { index_ref(ix) }?;
         let id = unsafe { cstr(message_id) }?;
@@ -215,6 +225,7 @@ pub extern "C" fn dc_index_search(
     out_json: *mut *mut c_char,
     _free: FreeCallback,
 ) -> c_int {
+    audit::record_call();
     let result = (|| -> Result<String, String> {
         let handle = unsafe { index_ref(ix) }?;
         if is_cancelled(handle) {
@@ -243,17 +254,20 @@ pub extern "C" fn dc_index_search(
         ])
         .to_string())
     })();
-    match result {
-        Ok(payload) => unsafe { write_out(&payload, out_json) }
-            .map(|_| DC_OK)
-            .unwrap_or(DC_ERR_INVALID_ARGUMENT),
+    let code = match result {
+        Ok(payload) => match unsafe { write_out(&payload, out_json) } {
+            Ok(()) => DC_OK,
+            Err(_) => DC_ERR_INVALID_ARGUMENT,
+        },
         Err(msg) => {
             if !ix.is_null() {
                 set_error(unsafe { &*ix }, &msg);
             }
             error_code_for(&msg)
         }
-    }
+    };
+    audit::record_error(code);
+    code
 }
 
 fn parse_options(options_json: *const c_char) -> Result<(usize, Option<String>), String> {
@@ -278,6 +292,7 @@ fn parse_options(options_json: *const c_char) -> Result<(usize, Option<String>),
 /// NULL 时仅清空。快照元素形如 `{"id","content","namespace"?}`。
 #[no_mangle]
 pub extern "C" fn dc_index_rebuild(ix: *mut dc_index, source_path: *const c_char) -> c_int {
+    audit::record_call();
     let result = (|| -> Result<(), String> {
         let handle = unsafe { index_ref(ix) }?;
         if is_cancelled(handle) {
@@ -322,6 +337,7 @@ pub extern "C" fn dc_index_rebuild(ix: *mut dc_index, source_path: *const c_char
 
 #[no_mangle]
 pub extern "C" fn dc_index_status(ix: *mut dc_index, out_json: *mut *mut c_char) -> c_int {
+    audit::record_call();
     let result = (|| -> Result<String, String> {
         let handle = unsafe { index_ref(ix) }?;
         let core = handle.inner.read().unwrap_or_else(|e| e.into_inner());
@@ -339,21 +355,25 @@ pub extern "C" fn dc_index_status(ix: *mut dc_index, out_json: *mut *mut c_char)
         ])
         .to_string())
     })();
-    match result {
-        Ok(payload) => unsafe { write_out(&payload, out_json) }
-            .map(|_| DC_OK)
-            .unwrap_or(DC_ERR_INVALID_ARGUMENT),
+    let code = match result {
+        Ok(payload) => match unsafe { write_out(&payload, out_json) } {
+            Ok(()) => DC_OK,
+            Err(_) => DC_ERR_INVALID_ARGUMENT,
+        },
         Err(msg) => {
             if !ix.is_null() {
                 set_error(unsafe { &*ix }, &msg);
             }
             error_code_for(&msg)
         }
-    }
+    };
+    audit::record_error(code);
+    code
 }
 
 #[no_mangle]
 pub extern "C" fn dc_index_cancel(ix: *mut dc_index) {
+    audit::record_call();
     if !ix.is_null() {
         unsafe { &*ix }.cancelled.store(true, Ordering::SeqCst);
     }
@@ -361,6 +381,7 @@ pub extern "C" fn dc_index_cancel(ix: *mut dc_index) {
 
 #[no_mangle]
 pub extern "C" fn dc_index_last_error(ix: *mut dc_index, buf: *mut c_char, len: usize) -> c_int {
+    audit::record_call();
     if ix.is_null() || buf.is_null() || len == 0 {
         return 0;
     }
@@ -385,6 +406,7 @@ pub extern "C" fn dc_eval_expr(
     out_json: *mut *mut c_char,
     _free: FreeCallback,
 ) -> c_int {
+    audit::record_call();
     let result = (|| -> Result<(c_int, String), String> {
         let input = unsafe { cstr(expr_json) }?;
         let value = json::parse(input).map_err(|e| format!("invalid expr JSON: {}", e))?;
@@ -413,10 +435,11 @@ pub extern "C" fn dc_eval_expr(
         }
     })();
 
-    match result {
-        Ok((code, payload)) => unsafe { write_out(&payload, out_json) }
-            .map(|_| code)
-            .unwrap_or(DC_ERR_INVALID_ARGUMENT),
+    let code = match result {
+        Ok((code, payload)) => match unsafe { write_out(&payload, out_json) } {
+            Ok(()) => code,
+            Err(_) => DC_ERR_INVALID_ARGUMENT,
+        },
         Err(msg) => {
             let payload = Json::object(vec![
                 ("ok", Json::Bool(false)),
@@ -428,18 +451,51 @@ pub extern "C" fn dc_eval_expr(
                 Err(_) => DC_ERR_INVALID_ARGUMENT,
             }
         }
-    }
+    };
+    audit::record_error(code);
+    code
 }
 
 /// 释放本 crate 分配的输出 JSON。调用方必须成对使用；
 /// 不可用于释放其他来源的指针（所有权规则见 DESIGN_RUST_CORE §4.3）。
 #[no_mangle]
 pub extern "C" fn dc_free(ptr: *mut c_void) {
+    audit::record_call();
     if !ptr.is_null() {
+        audit::record_freed();
         unsafe {
             drop(CString::from_raw(ptr as *mut c_char));
         }
     }
+}
+
+// MARK: - 审计与可观测性（ADR-0009 P2）
+
+/// 一次性安装 panic hook 并设置崩溃日志路径（可传 NULL = 不落文件）。
+#[no_mangle]
+pub extern "C" fn dc_audit_init(log_path: *const c_char) {
+    audit::record_call();
+    let path = if log_path.is_null() {
+        None
+    } else {
+        unsafe { cstr(log_path) }.ok().map(str::to_string)
+    };
+    audit::set_crash_log_path(path);
+    audit::install_panic_hook();
+}
+
+/// 导出审计快照：`out_json = {"version","total_calls","outstanding_allocations",
+/// "panic_count","error_counts","recent_panics"}`，由调用方 `dc_free` 释放。
+#[no_mangle]
+pub extern "C" fn dc_audit_snapshot(out_json: *mut *mut c_char) -> c_int {
+    audit::record_call();
+    let payload = audit::snapshot().to_string();
+    let code = match unsafe { write_out(&payload, out_json) } {
+        Ok(()) => DC_OK,
+        Err(_) => DC_ERR_INVALID_ARGUMENT,
+    };
+    audit::record_error(code);
+    code
 }
 
 #[cfg(test)]
@@ -594,6 +650,72 @@ mod tests {
         assert_eq!(
             dc_index_upsert(std::ptr::null_mut(), std::ptr::null()),
             DC_ERR_INVALID_ARGUMENT
+        );
+    }
+
+    // MARK: - 审计快照（AU-13 / AU-14）
+
+    /// 解析当前快照的错误码计数（进程级计数器，测试用增量断言）。
+    fn snapshot_counts() -> std::collections::HashMap<String, u64> {
+        let snap = crate::audit::snapshot();
+        let mut map = std::collections::HashMap::new();
+        if let Some(crate::json::Json::Object(items)) = snap.get("error_counts") {
+            for (key, value) in items {
+                map.insert(key.clone(), value.as_i64().unwrap_or(0) as u64);
+            }
+        }
+        map
+    }
+
+    #[test]
+    fn audit_snapshot_counts_match_returned_codes_au13() {
+        let before = snapshot_counts();
+
+        let (code, _) = eval_ffi(r#"{"expr":"1/0"}"#);
+        assert_eq!(code, DC_ERR_INVALID_ARGUMENT);
+        let ix = open_index(None);
+        assert_eq!(
+            dc_index_upsert(ix, std::ptr::null()),
+            DC_ERR_INVALID_ARGUMENT
+        );
+        assert_eq!(
+            dc_index_delete(ix, std::ptr::null()),
+            DC_ERR_INVALID_ARGUMENT
+        );
+        dc_index_close(ix);
+
+        let after = snapshot_counts();
+        let delta_minus1 =
+            after.get("-1").copied().unwrap_or(0) - before.get("-1").copied().unwrap_or(0);
+        assert_eq!(
+            delta_minus1, 3,
+            "AU-13：-1 错误码计数应与实际返回一致（单线程执行）"
+        );
+        assert_eq!(
+            after.get("0").copied().unwrap_or(0),
+            before.get("0").copied().unwrap_or(0),
+            "AU-13：成功路径不记错误码"
+        );
+    }
+
+    #[test]
+    fn outstanding_allocations_return_to_zero_au14() {
+        let before = crate::audit::outstanding_allocations();
+
+        for _ in 0..10 {
+            let (code, _) = eval_ffi(r#"{"expr":"1 + 2"}"#);
+            assert_eq!(code, DC_OK);
+        }
+        let ix = open_index(None);
+        let mut out: *mut c_char = std::ptr::null_mut();
+        assert_eq!(dc_index_status(ix, &mut out), DC_OK);
+        dc_free(out.cast());
+        dc_index_close(ix);
+
+        assert_eq!(
+            crate::audit::outstanding_allocations(),
+            before,
+            "AU-14：操作后未释放分配应为 0（相对增量，单线程执行）"
         );
     }
 }

@@ -138,8 +138,8 @@
 - [x] P1 接入：A 配置（SettingsStore 安全相关 didSet）、B 权限
   （PathScope / bookmark / 注册表自检 / 轮次上限）、C 工具（executeTool）、
   D 存储（迁移 / 降级 / 导入导出 / 索引）四域现成挂点（索引事件随 Tier 3）
-- [ ] P2 FFI：Rust 计数器 + panic hook + `dc_audit_snapshot` + 泄漏断言；
-  cargo audit / fuzz / ASan 进 CI
+- [x] P2 FFI：Rust 计数器 + panic hook（崩溃日志）+ `dc_audit_snapshot` +
+  分配 / 泄漏断言；cargo audit / fuzz（cron）/ ASan 进 CI（2026-08-01）
 - [ ] P3：read_file / 沙箱门禁审计（随 Tier 4）；哈希链加固（可选）
 - [ ] P4：网络 / 长时推演域事件（随 Tier 5）；保留策略自动执行；导出完善
 - [x] scale 阈值上调（P1 落地校准：6000 → 7500，原因记录在 check-scale.sh）

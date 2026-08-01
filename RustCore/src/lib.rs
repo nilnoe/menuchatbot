@@ -14,6 +14,7 @@ pub mod eval;
 pub mod index;
 pub mod json;
 
+pub mod audit;
 mod ffi;
 
 pub use ffi::*;

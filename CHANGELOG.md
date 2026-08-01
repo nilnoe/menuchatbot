@@ -49,6 +49,27 @@
   原因记录于脚本头）；SessionStore 拆出 `SessionStore+Audit` /
   `SessionStore+Migrations` 满足单文件 ≤ 800 行。
 
+### 功能（Tier A：审计模块 P2 —— FFI 审计与 CI 加固）
+
+- **Rust 审计模块**：`RustCore/src/audit.rs`——错误码计数器、调用计数、
+  分配 / 释放配对计数、panic 环形缓冲与崩溃日志；`std::panic::set_hook`
+  把 panic 现场（消息 + 位置）先写入审计再走默认 hook（`panic=abort`
+  语义不变）。
+- **新 ABI**：`dc_audit_init`（幂等安装 panic hook + 崩溃日志路径）与
+  `dc_audit_snapshot`（计数器 + 环形缓冲 JSON，`dc_free` 释放）；头文件、
+  stub 降级库、`build-rust-core.sh` ABI 校验数组同步（13 个导出符号）。
+- **Swift 桥接**：`DeepSeekChatIndexing/RustAudit.swift`（install +
+  snapshot 解析，stub 降级为 no-op）；`AuditCenter` 启动安装 + 每 60s
+  增量采集，把错误码增量 / panic / 泄漏落为 `ffi.*` 事件。
+- **CI 加固**：rust job 加 `cargo audit`（供应链漏洞扫描，AU-17）且
+  `cargo test` 单线程执行（全局计数器确定性，AU-13/14）；新增 cron
+  `fuzz` job（cargo-fuzz 打 `dc_eval_expr` / `dc_index_upsert` 输入边界，
+  ≥ 10 万迭代，AU-16）；新增 `asan` job（FFI 测试在 Address Sanitizer 下
+  运行，AU-14）；`RustCore/tests/fuzz_smoke.rs` 提供常驻 10 万次确定性
+  冒烟。
+- **测试**：Rust 35 全绿（新增 AU-13/14/15 + fuzz 冒烟）、Swift 318 全绿
+  （新增 FFI 快照 / 采集事件测试）。
+
 ### 重构
 
 - **测试代码模块化**：`Tests/` 目录镜像 `Sources` 分层（App / Domain /

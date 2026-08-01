@@ -88,6 +88,19 @@ int dc_eval_expr(const char *expr_json, char **out_json, void (*dc_free_cb)(void
     return DC_ERR_UNAVAILABLE;
 }
 
+void dc_audit_init(const char *log_path)
+{
+    (void)log_path;
+}
+
+int dc_audit_snapshot(char **out_json)
+{
+    if (out_json != NULL) {
+        *out_json = NULL;
+    }
+    return DC_ERR_UNAVAILABLE;
+}
+
 void dc_free(void *ptr)
 {
     free(ptr);

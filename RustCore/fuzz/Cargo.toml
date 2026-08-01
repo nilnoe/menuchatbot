@@ -1,0 +1,23 @@
+[package]
+name = "rustcore-fuzz"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[[bin]]
+name = "fuzz_eval_expr"
+path = "fuzz_targets/fuzz_eval_expr.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_index_upsert"
+path = "fuzz_targets/fuzz_index_upsert.rs"
+test = false
+doc = false
+
+[profile.release]
+debug = 1

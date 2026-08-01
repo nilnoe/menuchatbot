@@ -1,3 +1,4 @@
+import DeepSeekChatIndexing
 import Foundation
 import XCTest
 
@@ -35,7 +36,18 @@ final class AuditCenterTests: XCTestCase {
             message: "切换模型"
         )
         await waitUntil(timeout: .seconds(3)) { !center.recentEvents.isEmpty }
-        XCTAssertEqual(center.recentEvents.count, 2, "AU-4：内存库降级后记录仍可用")
+        XCTAssertGreaterThanOrEqual(
+            center.recentEvents.count, 2,
+            "AU-4：内存库降级后记录仍可用"
+        )
+        XCTAssertTrue(
+            center.recentEvents.contains { $0.category == AuditCategory.pathDenied },
+            "AU-4：手动记录的事件应出现在环形缓冲"
+        )
+        XCTAssertTrue(
+            center.recentEvents.contains { $0.category == AuditCategory.modelChanged },
+            "AU-4：手动记录的事件应出现在环形缓冲"
+        )
 
         // 业务不受影响：会话 store 照常工作。
         let store = SessionStore(storageDirectory: tempDir, audit: center.logger)
@@ -66,6 +78,30 @@ final class AuditCenterTests: XCTestCase {
         let decoded = try JSONDecoder().decode([AuditEvent].self, from: data)
         XCTAssertEqual(decoded.count, center.store.count(), "AU-20：导出与库内一致")
         XCTAssertEqual(decoded.first?.category, AuditCategory.executionSuccess)
+    }
+
+    func testRustAuditCollectionRecordsFFIEventsAU13() async throws {
+        guard RustAudit.snapshot() != nil else {
+            throw XCTSkip("Rust 库不可用（stub 降级），FFI 事件测试跳过")
+        }
+        let center = AuditCenter(directory: tempDir)
+        center.flushAuditLog()
+        let beforeCount = center.store.recent(limit: 100, domain: .ffi).count
+
+        let calculator = RustCalculatorService()
+        _ = try? await calculator.evaluate("1/0")
+        center.collectRustAudit()
+        center.flushAuditLog()
+
+        let ffiEvents = center.store.recent(limit: 100, domain: .ffi)
+        XCTAssertGreaterThan(
+            ffiEvents.count, beforeCount,
+            "AU-13：Rust 调用后应产生 ffi 事件"
+        )
+        XCTAssertTrue(
+            ffiEvents.contains { $0.category == AuditCategory.ffiError },
+            "AU-13：错误码增量应产生 ffi.error 事件"
+        )
     }
 
     private func waitUntil(

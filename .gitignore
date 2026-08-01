@@ -13,6 +13,10 @@ DerivedData/
 .build/
 .swiftpm/
 
+# cargo-fuzz（CI cron job 生成锁文件与产物）
+RustCore/fuzz/Cargo.lock
+RustCore/fuzz/target/
+
 # 构建产物
 dist/
 

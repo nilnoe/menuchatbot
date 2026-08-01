@@ -121,4 +121,41 @@ final class RustCoreFFIIntegrationTests: XCTestCase {
         let state = await service.state
         XCTAssertEqual(state, .unavailable("Rust 索引打开失败（配置非法或 Rust 核心不可用）"))
     }
+
+    // MARK: - 审计快照（ADR-0009 P2，AU-13 / AU-14 / AU-15）
+
+    func testAuditSnapshotCountsErrorsAU13() async throws {
+        RustAudit.install(logPath: nil)
+        let before = try XCTUnwrap(RustAudit.snapshot(), "Rust 库应能返回快照")
+
+        let calculator = RustCalculatorService()
+        _ = try? await calculator.evaluate("1/0")
+        _ = try? await calculator.evaluate("不支持的表达式@@")
+
+        let after = try XCTUnwrap(RustAudit.snapshot())
+        let delta =
+            (after.errorCounts[-1] ?? 0) - (before.errorCounts[-1] ?? 0)
+        XCTAssertGreaterThanOrEqual(
+            delta, 1,
+            "AU-13：错误码 -1 计数应随实际返回增长"
+        )
+        XCTAssertGreaterThan(
+            after.totalCalls, before.totalCalls,
+            "AU-13：调用计数应增长"
+        )
+    }
+
+    func testAuditSnapshotOutstandingAllocationsReturnToZeroAU14() async throws {
+        RustAudit.install(logPath: nil)
+        let calculator = RustCalculatorService()
+        for index in 0..<10 {
+            let output = try await calculator.evaluate("1 + \(index)")
+            XCTAssertEqual(output, String(index + 1))
+        }
+        let snapshot = try XCTUnwrap(RustAudit.snapshot())
+        XCTAssertEqual(
+            snapshot.outstandingAllocations, 0,
+            "AU-14：操作序列结束后未释放分配应为 0"
+        )
+    }
 }

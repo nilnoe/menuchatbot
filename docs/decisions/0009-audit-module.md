@@ -141,6 +141,13 @@ struct AuditEvent {
 > panic hook / fuzz / cargo audit / ASan）、P3（Tier 4 门禁审计 /
 > 哈希链）、P4（网络 / 推演域 / 保留自动执行）待后续 Tier 落地。
 
+> **P2 落地记录（2026-08-01）**：`RustCore/src/audit.rs`（错误码计数器 /
+> 分配配对 / panic 环形缓冲 + 崩溃日志）、`dc_audit_init` /
+> `dc_audit_snapshot` 两个新 ABI（头文件 / stub / ABI 校验同步，13 符号）、
+> Swift `RustAudit` 桥接 + `AuditCenter` 增量采集（`ffi.*` 事件）；
+> CI 新增 cargo audit / cron fuzz / ASan 三处加固；Rust 35 + Swift 318
+> 全绿。P3 / P4 待后续 Tier 落地。
+
 ## 后果
 
 **正面**：安全事件全程可追溯（AU-2/3 落地）；FFI 与工具边界从"约定"变为
