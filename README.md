@@ -94,6 +94,12 @@ swift test        # 运行 191 个单元测试（含性能基线）
 ```
 DeepSeekChat/
 ├── Package.swift              # SwiftPM 工程定义（含测试 target）
+├── README.md                  # 项目入口（功能 / 快速开始 / FAQ）
+├── CHANGELOG.md               # 版本历史（Keep a Changelog）
+├── TODO.md                    # 开发路线图与待办
+├── PROJECT_SPEC.md            # 工程规范与架构约束
+├── CONTRIBUTING.md            # 贡献指南
+├── LICENSE                    # MIT 许可
 ├── scripts/make-app.sh        # 一键构建脚本（编译 + 打包 .app）
 ├── docs/                      # 文档（地图入口见 docs/README.md）
 ├── Sources/DeepSeekChat/
