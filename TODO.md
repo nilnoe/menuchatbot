@@ -166,6 +166,9 @@ mock 向量检索区分度差——用真实项目文档作语料跑模糊查询
 - [x] P1 接入：A 配置（SettingsStore 安全相关 didSet）、B 权限
   （PathScope / bookmark / 注册表自检 / 轮次上限）、C 工具（executeTool）、
   D 存储（迁移 / 降级 / 导入导出 / 索引）四域现成挂点（索引事件随 Tier 3）
+- [ ] P1.5 RAG 检索注入审计：每次检索记录（时间 / 涉及的资料库 / 命中
+  文件数 / 注入 token 数，**不含查询原文与内容**），设置页可查看——
+  2026-08-01 识别为 Tier 3 暴露的缺口（索引已有事件，检索注入没有）
 - [x] P2 FFI：Rust 计数器 + panic hook（崩溃日志）+ `dc_audit_snapshot` +
   分配 / 泄漏断言；cargo audit / fuzz（cron）/ ASan 进 CI（2026-08-01）
 - [ ] P3：read_file / 沙箱门禁审计（随 Tier 4）；哈希链加固（可选）
