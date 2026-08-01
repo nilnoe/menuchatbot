@@ -1,7 +1,7 @@
 # ADR-0002：自定义模型供应商（OpenAI 兼容 base_url）
 
 - 状态：已接受（2026-07-31，main）
-- 关联：TODO.md「Beta 0.3」、Services/DeepSeekClient.swift、Persistence/SettingsStore.swift
+- 关联：TODO_HISTORY.md「Beta 0.3」、Services/DeepSeekClient.swift、Persistence/SettingsStore.swift
 
 ## 背景
 

@@ -97,6 +97,7 @@ DeepSeekChat/
 ├── README.md                  # 项目入口（功能 / 快速开始 / FAQ）
 ├── CHANGELOG.md               # 版本历史（Keep a Changelog）
 ├── TODO.md                    # 开发路线图与待办
+├── TODO_HISTORY.md            # 历史 TODO 归档（低优先级 backlog）
 ├── PROJECT_SPEC.md            # 工程规范与架构约束
 ├── CONTRIBUTING.md            # 贡献指南
 ├── LICENSE                    # MIT 许可

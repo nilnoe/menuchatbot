@@ -17,6 +17,7 @@
 | Rust 核心集成详细设计 | [DESIGN_RUST_CORE](DESIGN_RUST_CORE.md) |
 | 版本变更历史 | [CHANGELOG](../CHANGELOG.md) |
 | 开发路线图 / 待办 | [TODO](../TODO.md) |
+| 历史 TODO / 低优先级 backlog | [TODO_HISTORY](../TODO_HISTORY.md) |
 | 架构决策记录（ADR） | [decisions](decisions/) |
 
 ## 文档分类与状态
@@ -43,6 +44,8 @@
 
 ### 历史记录（归档，仅参考，不随现状改写）
 
+- [TODO_HISTORY](../TODO_HISTORY.md) —— 原 TODO 一~五节（性能记录 / UI /
+  路线图 / 工程记录 / 长期探索），2026-08-01 拆分归档，低优先级。
 - [REFACTORING](REFACTORING.md) —— 2026-07 分层架构重构的分步过程（已完成）。
 - [CHANGELOG](../CHANGELOG.md) 各历史版本条目。
 

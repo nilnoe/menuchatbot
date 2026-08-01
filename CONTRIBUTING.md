@@ -33,7 +33,8 @@ swift-format lint --recursive --strict Sources Tests   # 代码规范检查（�
 - [ ] `swift-format lint --recursive --strict Sources Tests` 零违规
 - [ ] `./scripts/check-scale.sh` 通过（源码 / 测试总量与单文件大小上限）
 - [ ] 新功能优先复用开源库，并在 PR 描述说明选型
-- [ ] 破坏性改动（如存储 schema）走 GRDB 迁移，并同步更新 TODO / CHANGELOG
+- [ ] 破坏性改动（如存储 schema）走 GRDB 迁移，并同步更新 TODO（历史条目
+  进 TODO_HISTORY）/ CHANGELOG
 
 ## 分支与提交
 

@@ -124,7 +124,8 @@ Sources/DeepSeekChat/
   [docs/TESTING_ROADMAP.md](docs/TESTING_ROADMAP.md)。
 - 任何破坏性 schema 变更必须走 GRDB `DatabaseMigrator` 迁移，禁止直接改表删表。
 - 性能敏感路径（渲染、滚动、存储）在 PR 描述中说明复杂度，并尽量用 XCTMeasure 防回归。
-- 改动同步更新 CHANGELOG.md / TODO.md 及受影响文档（README、docs/ 下指南）；
+- 改动同步更新 CHANGELOG.md / TODO.md（历史条目进 TODO_HISTORY.md）
+  及受影响文档（README、docs/ 下指南）；
   新增共享测试能力时登记 docs/TESTING.md 支持 API 手册。
 
 ## 5. 引入新依赖的流程

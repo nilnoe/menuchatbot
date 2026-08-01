@@ -32,6 +32,11 @@
 - **重构评估定稿（纯文档）**：新增 [ADR-0008](docs/decisions/0008-refactor-assessment.md)
   明确「结构不重构、数据与接口地基先行、target 拆分后置」；TODO Tier 1
   调整为「第一批数据地基 → 第二批接口地基」并补齐验收标准。
+- **TODO 拆分（纯文档）**：历史内容（性能记录 / UI 改进 / Beta 0.2~1.0
+  路线 / 工程记录 / 长期探索）移入 [TODO_HISTORY.md](TODO_HISTORY.md) 并
+  **降级为低优先级归档**；[TODO.md](TODO.md) 保留现行规划（优先级备忘 +
+  Rust 核心与 AI 能力路线 + 历史 backlog 索引），README / 文档地图 /
+  ADR-0002 引用同步更新。
 
 ## [0.3.0] - 2026-08-01
 
