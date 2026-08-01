@@ -40,7 +40,7 @@ jobs:
       - name: Audit dependencies (cargo audit)
         uses: actions-rust-lang/audit@v1
         with:
-          manifest-path: RustCore/Cargo.toml
+          args: --manifest-path RustCore/Cargo.toml
 
   fuzz:
     name: Rust Fuzz (cron, AU-16)
@@ -51,9 +51,9 @@ jobs:
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
       - name: Fuzz dc_eval_expr boundary
-        run: cd RustCore/fuzz && cargo fuzz run fuzz_eval_expr -- -runs=100000 -max_total_time=300
+        run: cd RustCore && cargo fuzz run fuzz_eval_expr -- -runs=100000 -max_total_time=300
       - name: Fuzz dc_index_upsert boundary
-        run: cd RustCore/fuzz && cargo fuzz run fuzz_index_upsert -- -runs=100000 -max_total_time=300
+        run: cd RustCore && cargo fuzz run fuzz_index_upsert -- -runs=100000 -max_total_time=300
 
   asan:
     name: FFI Tests (Address Sanitizer, AU-14)

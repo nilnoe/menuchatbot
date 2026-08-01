@@ -17,10 +17,12 @@ final class SessionStoreIndexEventTests: XCTestCase {
     private func collectEvents(
         from store: SessionStore, during body: () -> Void
     ) async -> [IndexEvent] {
-        var events: [IndexEvent] = []
+        // actor 隔离收集：Task 闭包为 @Sendable，捕获的可变数组在新 Swift
+        // 并发检查下是错误（CI macos-14 runner 实测）。
+        let collector = EventCollector()
         let task = Task {
             for await event in store.indexEvents {
-                events.append(event)
+                await collector.append(event)
             }
         }
         // 等消费者挂上（AsyncStream 有缓冲，早发布也不丢）。
@@ -28,7 +30,15 @@ final class SessionStoreIndexEventTests: XCTestCase {
         body()
         try? await Task.sleep(for: .milliseconds(50))
         task.cancel()
-        return events
+        return await collector.events
+    }
+
+    private actor EventCollector {
+        private(set) var events: [IndexEvent] = []
+
+        func append(_ event: IndexEvent) {
+            events.append(event)
+        }
     }
 
     func testPublishesUpsertDeleteSessionEvents() async {
