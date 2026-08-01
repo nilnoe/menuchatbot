@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-08-01
+
 ### 功能（Tier 2：Rust 骨架与工具链）
 
 - **Rust 核心静态库落地（T2-1）**：新增 `RustCore` crate（staticlib + 最小

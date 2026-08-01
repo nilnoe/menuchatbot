@@ -2,7 +2,7 @@
 
 > **AI 项目**：一个完全由 DeepSeek 大模型驱动的原生 macOS 菜单栏聊天应用。
 >
-> 当前版本：**Beta 0.3** · 纯 Swift / SwiftUI 实现，无 Web 框架、无 WebView、无运行时服务进程。
+> 当前版本：**Beta 0.3.1** · 纯 Swift / SwiftUI 实现，无 Web 框架、无 WebView、无运行时服务进程。
 > 版本更迭与开发经验见 [CHANGELOG.md](CHANGELOG.md)。
 
 点击菜单栏图标即可呼出聊天面板，随时问 AI、联网搜索、管理多个会话——像系统自带工具一样轻快。
@@ -91,7 +91,7 @@ open "dist/DeepSeek Chat.app"
 
 ```bash
 swift build       # 编译开发版（.build/debug/DeepSeekChat）
-swift test        # 运行 272 个单元测试（含性能基线）
+swift test        # 运行 318 个单元测试（含性能基线）
 .build/debug/DeepSeekChat   # 启动开发版
 ```
 
@@ -137,7 +137,7 @@ DeepSeekChat/
 │       ├── Views/             # SwiftUI 界面（纯展示）
 │       ├── DeepSeekChatApp.swift  # @main 入口
 │       └── AppConfiguration.swift # 应用级常量单一入口
-└── Tests/DeepSeekChatTests/   # 272 个单元测试，镜像 Sources 分层
+└── Tests/DeepSeekChatTests/   # 318 个单元测试，镜像 Sources 分层
     ├── App/                   # 窗口 / 面板测试
     ├── Domain/                # 领域模型测试
     ├── Services/              # 网络 / 解析 / 缓存测试

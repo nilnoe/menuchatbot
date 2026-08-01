@@ -1,7 +1,7 @@
 # DeepSeek Chat 工程规范
 
 > 本文档是 DeepSeek Chat 的工程规范，所有代码与改动必须遵守。
-> 版本状态：Beta 0.3 · 纯 Swift / SwiftUI 原生 macOS 菜单栏应用。
+> 版本状态：Beta 0.3.1 · 纯 Swift / SwiftUI 原生 macOS 菜单栏应用。
 
 ---
 

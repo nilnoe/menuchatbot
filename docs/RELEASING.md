@@ -14,8 +14,8 @@
    - `swift-format lint --recursive --strict Sources Tests` 零违规
 3. **打 tag 触发 CI 出包**
    ```bash
-   git tag -a v0.3.0 -m "Beta 0.3"
-   git push origin v0.3.0
+   git tag -a v0.3.1 -m "Beta 0.3.1"
+   git push origin v0.3.1
    ```
    GitHub Actions 的 `release` job 会自动构建并上传 `DeepSeek Chat.app` 产物。
 4. **发布 GitHub Release**
