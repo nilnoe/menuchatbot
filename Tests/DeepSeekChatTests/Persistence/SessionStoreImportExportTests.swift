@@ -39,16 +39,17 @@ final class SessionStoreImportExportTests: XCTestCase {
         XCTAssertEqual(result.importedMessages, 2)
         let imported = try XCTUnwrap(target.sessions.first)
         XCTAssertEqual(imported.title, "导出测试")
-        XCTAssertEqual(imported.messages.count, 2)
-        XCTAssertEqual(imported.messages[0].content, "你好")
-        XCTAssertEqual(imported.messages[1].content, "世界")
-        XCTAssertEqual(imported.messages[1].reasoning, "先想想")
+        let importedMessages = target.messages(for: imported.id)
+        XCTAssertEqual(importedMessages.count, 2)
+        XCTAssertEqual(importedMessages[0].content, "你好")
+        XCTAssertEqual(importedMessages[1].content, "世界")
+        XCTAssertEqual(importedMessages[1].reasoning, "先想想")
         XCTAssertEqual(
-            imported.messages[1].sources, [Source(title: "来源", url: "https://example.com")])
+            importedMessages[1].sources, [Source(title: "来源", url: "https://example.com")])
         // 导入会重新生成 ID，不覆盖原数据
         XCTAssertNotEqual(imported.id, session.id)
         let sourceMessages = try XCTUnwrap(source.session(id: session.id)?.messages)
-        XCTAssertFalse(imported.messages.map(\.id).contains(sourceMessages[0].id))
+        XCTAssertFalse(importedMessages.map(\.id).contains(sourceMessages[0].id))
     }
 
     func testImportRegeneratesIDsToAvoidCollisions() throws {
@@ -63,7 +64,7 @@ final class SessionStoreImportExportTests: XCTestCase {
         XCTAssertEqual(store.sessions.count, 3)
         let sessionIDs = store.sessions.map(\.id)
         XCTAssertEqual(Set(sessionIDs).count, sessionIDs.count)
-        let messageIDs = store.sessions.flatMap(\.messages).map(\.id)
+        let messageIDs = store.sessions.flatMap { store.messages(for: $0.id) }.map(\.id)
         XCTAssertEqual(Set(messageIDs).count, messageIDs.count)
     }
 
@@ -79,7 +80,10 @@ final class SessionStoreImportExportTests: XCTestCase {
         // 源会话 + 导入的会话都落在同一个 SQLite 库里
         XCTAssertEqual(reloaded.sessions.count, 2)
         XCTAssertEqual(Set(reloaded.sessions.map(\.title)), ["持久化"])
-        XCTAssertTrue(reloaded.sessions.allSatisfy { $0.messages.map(\.content) == ["x"] })
+        XCTAssertTrue(
+            reloaded.sessions.allSatisfy {
+                reloaded.messages(for: $0.id).map(\.content) == ["x"]
+            })
     }
 
     func testExportSingleSession() throws {

@@ -125,26 +125,18 @@ final class SidebarRowLayoutTests: XCTestCase {
 
     /// 真实 SidebarSessionRow（选中常显快捷操作 + tokens）挂窗渲染冒烟。
     func testSidebarSessionRowRendersSelectedWithTokens() {
-        let session = ChatSession(
+        let summary = SessionSummary(
             id: UUID(),
             title: "带用量会话",
-            messages: [
-                ChatMessage(
-                    role: .assistant,
-                    content: "回答",
-                    usage: TokenUsage(
-                        promptTokens: 500,
-                        cachedTokens: 0,
-                        completionTokens: 700,
-                        totalTokens: 1_200
-                    )
-                )
-            ],
             createdAt: Date(),
-            updatedAt: Date()
+            updatedAt: Date(),
+            isPinned: false,
+            messageCount: 1,
+            totalTokens: 1_200,
+            lastMessageHasSources: false
         )
         let row = SidebarSessionRow(
-            session: session,
+            summary: summary,
             isSelected: true,
             onSelect: {},
             onTogglePin: {},
@@ -169,16 +161,19 @@ final class SidebarRowLayoutTests: XCTestCase {
 
     /// 行内重命名状态渲染冒烟：标题变为输入框、右侧为确定 / 取消。
     func testSidebarSessionRowRendersRenaming() {
-        let session = ChatSession(
+        let summary = SessionSummary(
             id: UUID(),
             title: "旧标题",
-            messages: [],
             createdAt: Date(),
-            updatedAt: Date()
+            updatedAt: Date(),
+            isPinned: false,
+            messageCount: 0,
+            totalTokens: 0,
+            lastMessageHasSources: false
         )
         var draft = "新标题"
         let row = SidebarSessionRow(
-            session: session,
+            summary: summary,
             isSelected: true,
             isRenaming: true,
             renameDraft: Binding(get: { draft }, set: { draft = $0 }),
@@ -206,16 +201,18 @@ final class SidebarRowLayoutTests: XCTestCase {
     // MARK: - 快捷操作可见性规则（选中行常显 / hover 由行自身管理）
 
     private func makeRow(isSelected: Bool) -> SidebarSessionRow {
-        let session = ChatSession(
+        let summary = SessionSummary(
             id: UUID(),
             title: "测试会话",
-            messages: [],
             createdAt: Date(),
             updatedAt: Date(),
-            isPinned: true
+            isPinned: true,
+            messageCount: 0,
+            totalTokens: 0,
+            lastMessageHasSources: false
         )
         return SidebarSessionRow(
-            session: session,
+            summary: summary,
             isSelected: isSelected,
             onSelect: {},
             onTogglePin: {},

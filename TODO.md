@@ -41,8 +41,10 @@
 
 **第一批｜数据地基**（ADR-0008 D2）
 
-- [ ] SessionStore 拆分 SessionSummary 与消息分页（侧栏不再持有消息正文，
-  token 合计列化，消除每行 reduce；同时消除启动全量物化）
+- [x] SessionStore 拆分 SessionSummary（侧栏不再持有消息正文；token 合计
+  来自派生列 SQL 聚合，消除每行 reduce；启动不再全量物化消息，改为惰性
+  加载 + LRU 缓存）
+- [ ] 消息分页：ChatView 尾部 N 条 + 上翻增量加载（Tier 1-1e）
 - [x] 消息表派生列：tokenTotal / contentHash / indexVersion（GRDB migration；
   indexVersion 的"索引成功后更新"随 Tier 3 索引器落地）
 - [ ] 流式存储写放大修复（存储降频 + 后台写队列）+ messageStates LRU 上限

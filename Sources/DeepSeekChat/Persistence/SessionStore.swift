@@ -3,12 +3,17 @@ import Foundation
 import GRDB
 
 final class SessionStore: ObservableObject {
-    /// 会话数据。setter 设为 private：所有 UI 通知改为显式
+    /// 会话列表（仅元数据）。setter 设为 private：所有 UI 通知改为显式
     /// `objectWillChange.send()`，流式写回（syncMessage）不会触发整树重算。
-    private(set) var sessions: [ChatSession] = []
+    private(set) var sessions: [SessionSummary] = []
 
     private let directory: URL
     private let dbQueue: DatabaseQueue
+    /// 惰性消息缓存：仅已打开过的会话持有消息正文，上限 LRU 淘汰
+    /// （Tier 1-1，消除启动全量物化）。
+    private var messageCache: [UUID: [ChatMessage]] = [:]
+    private var messageCacheOrder: [UUID] = []
+    private static let messageCacheLimit = 3
     /// 消息 ID -> 消息状态。同一消息始终复用同一个状态对象，
     /// 保证流式更新只刷新该消息所在的视图。
     private var messageStates: [UUID: MessageState] = [:]
@@ -124,25 +129,57 @@ final class SessionStore: ObservableObject {
 
     // MARK: - 载入 / 旧数据迁移
 
+    /// 会话列表聚合查询：条数 / token 合计 / 最后消息来源全部由 SQL 计算，
+    /// 不物化任何消息正文。
+    private static let summarySQL =
+        """
+        SELECT session.id, session.title, session.createdAt, session.updatedAt, session.isPinned,
+               COUNT(message.id) AS messageCount,
+               COALESCE(SUM(message.tokenTotal), 0) AS totalTokens,
+               (SELECT sourcesJSON FROM message
+                WHERE message.sessionID = session.id
+                ORDER BY position DESC, rowid DESC LIMIT 1) AS lastSourcesJSON
+        FROM session
+        LEFT JOIN message ON message.sessionID = session.id
+        GROUP BY session.id
+        ORDER BY session.createdAt DESC, session.rowid DESC
+        """
+
+    private struct SessionSummaryRecord: Decodable, FetchableRecord {
+        var id: String
+        var title: String
+        var createdAt: Date
+        var updatedAt: Date
+        var isPinned: Bool
+        var messageCount: Int
+        var totalTokens: Int
+        var lastSourcesJSON: String?
+
+        var summary: SessionSummary {
+            let sources = lastSourcesJSON.flatMap {
+                try? JSONDecoder().decode([Source].self, from: Data($0.utf8))
+            }
+            return SessionSummary(
+                id: UUID(uuidString: id) ?? UUID(),
+                title: title,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                isPinned: isPinned,
+                messageCount: messageCount,
+                totalTokens: totalTokens,
+                lastMessageHasSources: !(sources?.isEmpty ?? true)
+            )
+        }
+    }
+
     private func load() {
+        messageCache.removeAll()
+        messageCacheOrder.removeAll()
         do {
-            let sessionRecords = try dbQueue.read { db in
-                try SessionRecord.order(Column("createdAt").desc, Column("rowid").desc).fetchAll(db)
+            let records = try dbQueue.read { db in
+                try SessionSummaryRecord.fetchAll(db, sql: Self.summarySQL)
             }
-            let messageRecords = try dbQueue.read { db in
-                try MessageRecord.order(Column("position"), Column("rowid")).fetchAll(db)
-            }
-            let messagesBySession = Dictionary(grouping: messageRecords, by: \.sessionID)
-            sessions = sessionRecords.map { record in
-                ChatSession(
-                    id: UUID(uuidString: record.id) ?? UUID(),
-                    title: record.title,
-                    messages: (messagesBySession[record.id] ?? []).map(\.chatMessage),
-                    createdAt: record.createdAt,
-                    updatedAt: record.updatedAt,
-                    isPinned: record.isPinned
-                )
-            }
+            sessions = records.map(\.summary)
         } catch {
             AppLog.storage.error("读取会话失败: \(error, privacy: .public)")
         }
@@ -181,7 +218,8 @@ final class SessionStore: ObservableObject {
 
     // MARK: - 会话操作
 
-    func createSession(title: String = "新对话") -> ChatSession {
+    @discardableResult
+    func createSession(title: String = "新对话") -> SessionSummary {
         let now = Date()
         let session = ChatSession(
             id: UUID(),
@@ -191,7 +229,8 @@ final class SessionStore: ObservableObject {
             updatedAt: now,
             isPinned: false
         )
-        sessions.insert(session, at: 0)
+        let summary = makeSummary(from: session)
+        sessions.insert(summary, at: 0)
         do {
             try dbQueue.write { db in
                 var record = SessionRecord(
@@ -207,7 +246,7 @@ final class SessionStore: ObservableObject {
             AppLog.storage.error("创建会话写库失败: \(error, privacy: .public)")
         }
         objectWillChange.send()
-        return session
+        return summary
     }
 
     func deleteSession(id: UUID) {
@@ -216,6 +255,8 @@ final class SessionStore: ObservableObject {
                 messageStates.removeValue(forKey: message.id)
             }
         }
+        messageCache.removeValue(forKey: id)
+        messageCacheOrder.removeAll { $0 == id }
         sessions.removeAll { $0.id == id }
         do {
             try dbQueue.write { db in
@@ -233,21 +274,24 @@ final class SessionStore: ObservableObject {
     /// 删除单条消息（重试场景：清掉末尾的错误回复后重新生成）。
     /// 删除后重排剩余消息的 position，保持数据库顺序连续。
     func removeMessage(sessionID: UUID, messageID: UUID) {
-        guard
-            let sessionIndex = sessions.firstIndex(where: { $0.id == sessionID }),
-            let messageIndex = sessions[sessionIndex].messages.firstIndex(where: {
-                $0.id == messageID
-            })
-        else { return }
+        guard let sessionIndex = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
+        var updated = messages(for: sessionID)
+        guard let messageIndex = updated.firstIndex(where: { $0.id == messageID }) else { return }
 
-        sessions[sessionIndex].messages.remove(at: messageIndex)
+        updated.remove(at: messageIndex)
+        messageCache[sessionID] = updated
+        sessions[sessionIndex].messageCount = updated.count
+        sessions[sessionIndex].totalTokens = updated.reduce(0) {
+            $0 + ($1.usage?.totalTokens ?? 0)
+        }
+        sessions[sessionIndex].lastMessageHasSources = !(updated.last?.sources?.isEmpty ?? true)
         sessions[sessionIndex].updatedAt = Date()
         messageStates.removeValue(forKey: messageID)
 
         do {
             try dbQueue.write { db in
                 try MessageRecord.deleteOne(db, key: messageID.uuidString)
-                for (position, message) in sessions[sessionIndex].messages.enumerated() {
+                for (position, message) in updated.enumerated() {
                     var record = makeMessageRecord(
                         message,
                         sessionID: sessionID,
@@ -280,13 +324,72 @@ final class SessionStore: ObservableObject {
         objectWillChange.send()
     }
 
-    func session(id: UUID) -> ChatSession? {
+    func summary(id: UUID) -> SessionSummary? {
         sessions.first { $0.id == id }
     }
 
+    /// 物化完整会话：元数据来自 summaries，消息按需加载。
+    func session(id: UUID) -> ChatSession? {
+        guard let summary = summary(id: id) else { return nil }
+        return ChatSession(
+            id: id,
+            title: summary.title,
+            messages: messages(for: id),
+            createdAt: summary.createdAt,
+            updatedAt: summary.updatedAt,
+            isPinned: summary.isPinned
+        )
+    }
+
+    /// 惰性加载 / 缓存指定会话的消息（LRU 上限，避免长会话常驻）。
+    func messages(for id: UUID) -> [ChatMessage] {
+        if let cached = messageCache[id] {
+            touchCache(id)
+            return cached
+        }
+        let records =
+            (try? dbQueue.read { db in
+                try MessageRecord
+                    .filter(Column("sessionID") == id.uuidString)
+                    .order(Column("position"), Column("rowid"))
+                    .fetchAll(db)
+            }) ?? []
+        let messages = records.map(\.chatMessage)
+        storeCache(messages, for: id)
+        return messages
+    }
+
+    private func touchCache(_ id: UUID) {
+        messageCacheOrder.removeAll { $0 == id }
+        messageCacheOrder.append(id)
+    }
+
+    private func storeCache(_ messages: [ChatMessage], for id: UUID) {
+        messageCache[id] = messages
+        touchCache(id)
+        while messageCacheOrder.count > Self.messageCacheLimit {
+            let evicted = messageCacheOrder.removeFirst()
+            messageCache.removeValue(forKey: evicted)
+        }
+    }
+
+    private func makeSummary(from session: ChatSession) -> SessionSummary {
+        SessionSummary(
+            id: session.id,
+            title: session.title,
+            createdAt: session.createdAt,
+            updatedAt: session.updatedAt,
+            isPinned: session.isPinned,
+            messageCount: session.messages.count,
+            totalTokens: session.messages.reduce(0) {
+                $0 + ($1.usage?.totalTokens ?? 0)
+            },
+            lastMessageHasSources: !(session.messages.last?.sources?.isEmpty ?? true)
+        )
+    }
+
     func history(for id: UUID) -> [APIMessage] {
-        guard let session = session(id: id) else { return [] }
-        return session.messages
+        messages(for: id)
             .filter { !$0.content.isEmpty }
             .map { APIMessage(role: $0.role.rawValue, content: $0.content) }
     }
@@ -295,15 +398,59 @@ final class SessionStore: ObservableObject {
 
     /// 导出全部会话为 JSON 备份数据。
     func exportJSON() throws -> Data {
-        let export = SessionExport(sessions: sessions)
+        let export = SessionExport(sessions: try allSessionsFromDB())
         return try JSONEncoder().encode(export)
     }
 
     /// 导出单个会话为 JSON 备份数据。
     func exportSessionJSON(id: UUID) throws -> Data? {
-        guard let session = session(id: id) else { return nil }
+        guard let session = try sessionFromDB(id: id) else { return nil }
         let export = SessionExport(sessions: [session])
         return try JSONEncoder().encode(export)
+    }
+
+    /// 导出直接读库（不依赖内存缓存），保证与持久化内容一致。
+    private func allSessionsFromDB() throws -> [ChatSession] {
+        try dbQueue.read { db in
+            let sessionRecords = try SessionRecord
+                .order(Column("createdAt").desc, Column("rowid").desc)
+                .fetchAll(db)
+            let messageRecords = try MessageRecord
+                .order(Column("position"), Column("rowid"))
+                .fetchAll(db)
+            let messagesBySession = Dictionary(grouping: messageRecords, by: \.sessionID)
+            return sessionRecords.map { record in
+                ChatSession(
+                    id: UUID(uuidString: record.id) ?? UUID(),
+                    title: record.title,
+                    messages: (messagesBySession[record.id] ?? []).map(\.chatMessage),
+                    createdAt: record.createdAt,
+                    updatedAt: record.updatedAt,
+                    isPinned: record.isPinned
+                )
+            }
+        }
+    }
+
+    private func sessionFromDB(id: UUID) throws -> ChatSession? {
+        try dbQueue.read { db in
+            guard let record = try SessionRecord.fetchOne(db, key: id.uuidString) else {
+                return nil
+            }
+            let messages = try MessageRecord
+                .filter(Column("sessionID") == id.uuidString)
+                .order(Column("position"), Column("rowid"))
+                .fetchAll(db)
+                .map(\.chatMessage)
+            return ChatSession(
+                id: UUID(uuidString: record.id) ?? UUID(),
+                title: record.title,
+                messages: messages,
+                createdAt: record.createdAt,
+                updatedAt: record.updatedAt,
+                isPinned: record.isPinned
+            )
+        }
     }
 
     /// 从 JSON 备份导入会话。
@@ -356,7 +503,7 @@ final class SessionStore: ObservableObject {
         }
         // 保持文件顺序：逆序逐个插到数组头部。
         for session in imported.reversed() {
-            sessions.insert(session, at: 0)
+            sessions.insert(makeSummary(from: session), at: 0)
         }
         objectWillChange.send()
 
@@ -368,8 +515,14 @@ final class SessionStore: ObservableObject {
 
     func appendMessage(sessionID: UUID, _ message: ChatMessage) {
         guard let index = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
-        sessions[index].messages.append(message)
         sessions[index].updatedAt = Date()
+        sessions[index].messageCount += 1
+        sessions[index].totalTokens += message.usage?.totalTokens ?? 0
+        sessions[index].lastMessageHasSources = !(message.sources?.isEmpty ?? true)
+        if var cached = messageCache[sessionID] {
+            cached.append(message)
+            messageCache[sessionID] = cached
+        }
         do {
             try dbQueue.write { db in
                 let position =
@@ -390,16 +543,18 @@ final class SessionStore: ObservableObject {
     }
 
     func updateMessage(sessionID: UUID, messageID: UUID, _ mutate: (inout ChatMessage) -> Void) {
-        guard
-            let sessionIndex = sessions.firstIndex(where: { $0.id == sessionID }),
-            let messageIndex = sessions[sessionIndex].messages.firstIndex(where: {
-                $0.id == messageID
-            })
-        else { return }
-        mutate(&sessions[sessionIndex].messages[messageIndex])
+        guard let sessionIndex = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
+        var messages = messages(for: sessionID)
+        guard let messageIndex = messages.firstIndex(where: { $0.id == messageID }) else { return }
+        let oldTokens = messages[messageIndex].usage?.totalTokens ?? 0
+        mutate(&messages[messageIndex])
+        let newTokens = messages[messageIndex].usage?.totalTokens ?? 0
+        messageCache[sessionID] = messages
+        sessions[sessionIndex].totalTokens += newTokens - oldTokens
+        sessions[sessionIndex].lastMessageHasSources = !(messages.last?.sources?.isEmpty ?? true)
         sessions[sessionIndex].updatedAt = Date()
         persistMessage(
-            sessions[sessionIndex].messages[messageIndex],
+            messages[messageIndex],
             sessionID: sessionID,
             position: messageIndex,
             updatedAt: sessions[sessionIndex].updatedAt
@@ -419,21 +574,23 @@ final class SessionStore: ObservableObject {
 
     /// 流式期间把最新内容写回存储，**不**触发 UI 通知，仅保证中途退出不丢已生成内容。
     func syncMessage(_ state: MessageState, sessionID: UUID) {
-        guard
-            let sessionIndex = sessions.firstIndex(where: { $0.id == sessionID }),
-            let messageIndex = sessions[sessionIndex].messages.firstIndex(where: {
-                $0.id == state.id
-            })
-        else { return }
-        sessions[sessionIndex].messages[messageIndex].content = state.content
-        sessions[sessionIndex].messages[messageIndex].reasoning = state.reasoning
-        sessions[sessionIndex].messages[messageIndex].sources = state.sources
-        sessions[sessionIndex].messages[messageIndex].usage = state.usage
-        sessions[sessionIndex].messages[messageIndex].isSearching = state.isSearching
-        sessions[sessionIndex].messages[messageIndex].isError = state.isError
+        guard let sessionIndex = sessions.firstIndex(where: { $0.id == sessionID }) else { return }
+        var messages = messages(for: sessionID)
+        guard let messageIndex = messages.firstIndex(where: { $0.id == state.id }) else { return }
+        let oldTokens = messages[messageIndex].usage?.totalTokens ?? 0
+        messages[messageIndex].content = state.content
+        messages[messageIndex].reasoning = state.reasoning
+        messages[messageIndex].sources = state.sources
+        messages[messageIndex].usage = state.usage
+        messages[messageIndex].isSearching = state.isSearching
+        messages[messageIndex].isError = state.isError
+        messageCache[sessionID] = messages
+        let newTokens = messages[messageIndex].usage?.totalTokens ?? 0
+        sessions[sessionIndex].totalTokens += newTokens - oldTokens
+        sessions[sessionIndex].lastMessageHasSources = !(messages.last?.sources?.isEmpty ?? true)
         sessions[sessionIndex].updatedAt = Date()
         persistMessage(
-            sessions[sessionIndex].messages[messageIndex],
+            messages[messageIndex],
             sessionID: sessionID,
             position: messageIndex,
             updatedAt: sessions[sessionIndex].updatedAt

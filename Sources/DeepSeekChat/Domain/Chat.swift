@@ -102,6 +102,24 @@ struct ChatSession: Codable, Equatable, Identifiable {
     }
 }
 
+/// 会话列表项（侧栏数据源）：仅元数据，**不持有消息正文**。
+///
+/// Tier 1-1 拆分：内存 / 存储模型解耦后，列表与侧栏只依赖本结构；
+/// 消息正文按需经 `SessionStore.messages(for:)` 惰性加载并分页缓存。
+struct SessionSummary: Identifiable, Equatable {
+    var id: UUID
+    var title: String
+    var createdAt: Date
+    var updatedAt: Date
+    var isPinned: Bool
+    /// 消息条数（SQL 聚合，随写入维护）。
+    var messageCount: Int
+    /// token 合计（来自派生列 tokenTotal，非逐条遍历）。
+    var totalTokens: Int
+    /// 最后一条消息是否带参考来源（侧栏图标：地球 vs 气泡）。
+    var lastMessageHasSources: Bool
+}
+
 /// 会话导入 / 导出的 JSON 包装格式。
 ///
 /// 带格式标识与版本号，避免未来数据结构变化时无法识别旧文件。

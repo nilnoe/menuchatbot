@@ -11,7 +11,7 @@ struct SidebarView: View {
     @State private var renamingID: UUID?
     @State private var renameDraft = ""
 
-    private var sortedSessions: [ChatSession] {
+    private var sortedSessions: [SessionSummary] {
         sessionStore.sessions.sorted { $0.updatedAt > $1.updatedAt }
     }
 
@@ -155,9 +155,9 @@ struct SidebarView: View {
         selectedID = session.id
     }
 
-    private func sessionRow(_ session: ChatSession) -> some View {
+    private func sessionRow(_ session: SessionSummary) -> some View {
         SidebarSessionRow(
-            session: session,
+            summary: session,
             isSelected: selectedID == session.id,
             isRenaming: renamingID == session.id,
             renameDraft: $renameDraft,
@@ -167,12 +167,12 @@ struct SidebarView: View {
             onTogglePin: {
                 // 从 store 读当前状态而不是闭包捕获的快照：
                 // 行视图跨组移动后可能持有过期 isPinned，直接取当前值翻转。
-                let current = sessionStore.session(id: session.id)
+                let current = sessionStore.summary(id: session.id)
                 sessionStore.setPinned(id: session.id, pinned: !(current?.isPinned ?? false))
             },
             onRename: {
                 renamingID = session.id
-                renameDraft = sessionStore.session(id: session.id)?.title ?? ""
+                renameDraft = sessionStore.summary(id: session.id)?.title ?? ""
             },
             onRenameConfirm: confirmRename,
             onRenameCancel: { renamingID = nil },
@@ -201,7 +201,7 @@ struct SidebarView: View {
         renamingID = nil
     }
 
-    private func deleteSession(_ session: ChatSession) {
+    private func deleteSession(_ session: SessionSummary) {
         sessionStore.deleteSession(id: session.id)
         if selectedID == session.id {
             selectedID = sessionStore.sessions.first?.id
@@ -210,14 +210,14 @@ struct SidebarView: View {
 
     private struct SessionGroup: Identifiable {
         let title: String
-        let sessions: [ChatSession]
+        let sessions: [SessionSummary]
         var id: String { title }
     }
 
     /// 侧栏扁平列表条目：组头或会话行。
     private enum SidebarItem: Identifiable {
         case header(String)
-        case session(ChatSession)
+        case session(SessionSummary)
 
         var id: String {
             switch self {
@@ -235,7 +235,7 @@ struct SidebarView: View {
 /// 独立成结构体（而非 SidebarView 私有函数）是为了让布局回归测试可以直接
 /// 渲染，验证文字与快捷按钮不重叠；行自身维护 hover 状态。
 struct SidebarSessionRow: View {
-    let session: ChatSession
+    let summary: SessionSummary
     let isSelected: Bool
     /// 是否处于行内重命名状态（标题变成输入框）。
     var isRenaming: Bool = false
@@ -304,9 +304,9 @@ struct SidebarSessionRow: View {
         } else if showsQuickActions {
             HStack(spacing: DesignTokens.Sidebar.quickActionSpacing) {
                 quickActionButton(
-                    systemImage: session.isPinned ? "pin.fill" : "pin",
-                    help: session.isPinned ? "取消置顶" : "置顶",
-                    foreground: session.isPinned ? Color.accentColor : Color.secondary,
+                    systemImage: summary.isPinned ? "pin.fill" : "pin",
+                    help: summary.isPinned ? "取消置顶" : "置顶",
+                    foreground: summary.isPinned ? Color.accentColor : Color.secondary,
                     action: onTogglePin
                 )
                 quickActionButton(
@@ -349,17 +349,17 @@ struct SidebarSessionRow: View {
                 titleSlot
                 HStack(spacing: 6) {
                     Text(relativeDate)
-                    Text("\(session.messages.count) 条")
+                    Text("\(summary.messageCount) 条")
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 // tokens 独立子行：不再与日期 / 条数挤在同一行，
                 // 也避免 hover 时被快捷按钮截断。
-                if let totalTokens = totalTokens {
+                if summary.totalTokens > 0 {
                     HStack(spacing: 4) {
                         Image(systemName: "chart.bar")
                             .font(.system(size: 9))
-                        Text("\(TokenUsage.compact(totalTokens)) tokens")
+                        Text("\(TokenUsage.compact(summary.totalTokens)) tokens")
                     }
                     .font(.system(size: DesignTokens.FontSize.caption - 1))
                     .foregroundStyle(.tertiary)
@@ -382,7 +382,7 @@ struct SidebarSessionRow: View {
                 .onSubmit { onRenameConfirm() }
                 .onExitCommand { onRenameCancel() }
         } else {
-            Text(session.title.isEmpty ? "新对话" : session.title)
+            Text(summary.title.isEmpty ? "新对话" : summary.title)
                 .font(.callout)
                 .lineLimit(1)
         }
@@ -400,24 +400,19 @@ struct SidebarSessionRow: View {
 
     /// 最近一条消息带参考来源（联网搜索过）的会话用地球图标区分。
     private var icon: String {
-        if session.messages.last?.sources?.isEmpty == false {
+        if summary.lastMessageHasSources {
             return "globe"
         }
         return "bubble.left"
     }
 
-    private var totalTokens: Int? {
-        let total = session.messages.reduce(0) { $0 + ($1.usage?.totalTokens ?? 0) }
-        return total > 0 ? total : nil
-    }
-
     private var relativeDate: String {
         let calendar = Calendar.current
-        if calendar.isDateInToday(session.updatedAt) { return "今天" }
-        if calendar.isDateInYesterday(session.updatedAt) { return "昨天" }
+        if calendar.isDateInToday(summary.updatedAt) { return "今天" }
+        if calendar.isDateInYesterday(summary.updatedAt) { return "昨天" }
         let formatter = DateFormatter()
         formatter.dateFormat = "M/d"
-        return formatter.string(from: session.updatedAt)
+        return formatter.string(from: summary.updatedAt)
     }
 
     private func quickActionButton(

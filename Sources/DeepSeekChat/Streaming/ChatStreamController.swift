@@ -46,15 +46,12 @@ final class ChatStreamController: ObservableObject {
         }
 
         var targetID = selectedSessionID
-        var targetSession = targetID.flatMap { sessionStore.session(id: $0) }
-        if targetSession == nil {
-            let created = sessionStore.createSession(title: "新对话")
-            targetSession = created
-            targetID = created.id
+        if targetID.flatMap({ sessionStore.summary(id: $0) }) == nil {
+            targetID = sessionStore.createSession(title: "新对话").id
         }
-        guard let session = targetSession, let sessionID = targetID else { return nil }
+        guard let sessionID = targetID else { return nil }
 
-        if session.messages.isEmpty {
+        if sessionStore.messages(for: sessionID).isEmpty {
             sessionStore.renameSession(id: sessionID, title: String(text.prefix(30)))
         }
         let userMessage = ChatMessage(role: .user, content: text)

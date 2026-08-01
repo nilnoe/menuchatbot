@@ -24,7 +24,7 @@ final class SessionStoreCRUDTests: XCTestCase {
         XCTAssertEqual(store.sessions.count, 2)
         XCTAssertEqual(store.sessions[0].id, second.id)
         XCTAssertEqual(store.sessions[1].id, first.id)
-        XCTAssertTrue(second.messages.isEmpty)
+        XCTAssertTrue(store.messages(for: second.id).isEmpty)
     }
 
     func testCreateSessionDefaultsTitle() {

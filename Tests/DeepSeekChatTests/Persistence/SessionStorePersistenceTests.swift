@@ -27,9 +27,10 @@ final class SessionStorePersistenceTests: XCTestCase {
         let loaded = storeB.sessions
         XCTAssertEqual(loaded.count, 1)
         XCTAssertEqual(loaded[0].title, "持久化")
-        XCTAssertEqual(loaded[0].messages.map(\.content), ["你好", "世界"])
-        XCTAssertEqual(loaded[0].messages.map(\.reasoning), [nil, "r"])
-        XCTAssertEqual(loaded[0].messages.map(\.role), [.user, .assistant])
+        let messages = storeB.messages(for: loaded[0].id)
+        XCTAssertEqual(messages.map(\.content), ["你好", "世界"])
+        XCTAssertEqual(messages.map(\.reasoning), [nil, "r"])
+        XCTAssertEqual(messages.map(\.role), [.user, .assistant])
     }
 
     func testCorruptedSessionsFileLeadsToEmpty() throws {

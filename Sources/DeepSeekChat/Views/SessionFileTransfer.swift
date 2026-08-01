@@ -22,11 +22,11 @@ enum SessionFileTransfer {
     }
 
     /// 导出单个会话（侧边栏右键菜单）。
-    static func exportSession(_ session: ChatSession, from store: SessionStore) {
-        let panel = makeSavePanel(name: "\(safeFileName(session.title))-\(dateStamp()).json")
+    static func exportSession(_ summary: SessionSummary, from store: SessionStore) {
+        let panel = makeSavePanel(name: "\(safeFileName(summary.title))-\(dateStamp()).json")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
-            guard let data = try store.exportSessionJSON(id: session.id) else {
+            guard let data = try store.exportSessionJSON(id: summary.id) else {
                 showNotice(title: "导出失败", message: "会话不存在", isError: true)
                 return
             }

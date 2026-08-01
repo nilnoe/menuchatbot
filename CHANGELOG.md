@@ -48,6 +48,11 @@
   `indexVersion`；旧库升级按 usageJSON 回填 tokenTotal；新增稳定内容指纹
   `ContentHash`（FNV-1a 64，跨启动稳定，替代随机播种的 `Hasher`）；
   新增 hash 确定性 / 派生列持久化 / 旧库升级迁移测试。测试 191 → 198。
+- **SessionSummary 拆分（惰性加载）**：`SessionStore.sessions` 改为仅元数据
+  的 `[SessionSummary]`（条数 / token 合计 / 最后来源由 SQL 聚合）；
+  消息正文按需 `messages(for:)` 惰性加载 + 3 会话 LRU 缓存，启动不再
+  全量物化；侧栏行改用 summary（消除每行 reduce）；导入导出直读数据库；
+  `SessionStoring` 协议新增 summaries 契约。新增 summary 行为测试 7 个。
 
 ## [0.3.0] - 2026-08-01
 
