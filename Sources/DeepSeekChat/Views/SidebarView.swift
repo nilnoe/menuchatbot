@@ -34,6 +34,24 @@ struct SidebarView: View {
         .filter { !$0.sessions.isEmpty }
     }
 
+    /// 侧栏列表的扁平化数据源：组头与会话行混排为单一数组，
+    /// 由 `ForEach(sidebarItems)` 直接渲染。
+    ///
+    /// 为什么不用「外层 ForEach(分组) 内层 ForEach(会话)」：实测（macOS 26）
+    /// 会话在置顶 / 时间分组之间移动时，嵌套 ForEach + LazyVStack 会保留
+    /// 旧位置的过期行快照（按钮 help、闭包捕获的 isPinned / 标题都是移动前
+    /// 的值），导致置顶后「无法取消置顶 / 重命名失效 / 选中态错乱」。
+    /// 拍平为单一 ForEach 后，移动变成同一个 ForEach 内部的 identity 移动，
+    /// SwiftUI 能正确更新行内容。
+    private var sidebarItems: [SidebarItem] {
+        var items: [SidebarItem] = []
+        for group in groupedSessions {
+            items.append(.header(group.title))
+            items.append(contentsOf: group.sessions.map { .session($0) })
+        }
+        return items
+    }
+
     private var currentModel: ModelInfo {
         settings.modelInfo(for: settings.model)
     }
@@ -53,14 +71,18 @@ struct SidebarView: View {
 
             ScrollView {
                 LazyVStack(spacing: 2) {
-                    ForEach(groupedSessions) { group in
-                        Text(group.title)
-                            .font(.system(size: DesignTokens.FontSize.caption, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.top, 8)
-                            .padding(.bottom, 2)
-                        ForEach(group.sessions) { session in
+                    ForEach(sidebarItems) { item in
+                        switch item {
+                        case .header(let title):
+                            Text(title)
+                                .font(
+                                    .system(size: DesignTokens.FontSize.caption, weight: .semibold)
+                                )
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.top, 8)
+                                .padding(.bottom, 2)
+                        case .session(let session):
                             sessionRow(session)
                         }
                     }
@@ -139,13 +161,18 @@ struct SidebarView: View {
             isSelected: selectedID == session.id,
             isRenaming: renamingID == session.id,
             renameDraft: $renameDraft,
-            onSelect: { selectedID = session.id },
+            onSelect: {
+                selectedID = session.id
+            },
             onTogglePin: {
-                sessionStore.setPinned(id: session.id, pinned: !session.isPinned)
+                // 从 store 读当前状态而不是闭包捕获的快照：
+                // 行视图跨组移动后可能持有过期 isPinned，直接取当前值翻转。
+                let current = sessionStore.session(id: session.id)
+                sessionStore.setPinned(id: session.id, pinned: !(current?.isPinned ?? false))
             },
             onRename: {
                 renamingID = session.id
-                renameDraft = session.title
+                renameDraft = sessionStore.session(id: session.id)?.title ?? ""
             },
             onRenameConfirm: confirmRename,
             onRenameCancel: { renamingID = nil },
@@ -185,6 +212,21 @@ struct SidebarView: View {
         let title: String
         let sessions: [ChatSession]
         var id: String { title }
+    }
+
+    /// 侧栏扁平列表条目：组头或会话行。
+    private enum SidebarItem: Identifiable {
+        case header(String)
+        case session(ChatSession)
+
+        var id: String {
+            switch self {
+            case .header(let title):
+                return "header-\(title)"
+            case .session(let session):
+                return session.id.uuidString
+            }
+        }
     }
 }
 
@@ -393,9 +435,10 @@ struct SidebarSessionRow: View {
                     height: DesignTokens.Sidebar.quickActionButtonSize
                 )
         }
-        // borderless：与窗口内其他图标按钮同款样式，避免 plain 样式在部分
-        // macOS 版本下点击无响应。
-        .buttonStyle(.borderless)
+        // plain：与行主体的 Button 同款样式。实测（macOS 26）borderless
+        // 按钮在 ScrollView + LazyVStack 中点击无响应（鼠标事件进入追踪
+        // 循环后不触发 action），plain/bordered 均正常；行主体即 plain。
+        .buttonStyle(.plain)
         .foregroundStyle(destructive ? Color.red : foreground)
         .help(help)
     }

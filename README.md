@@ -105,18 +105,20 @@ menuchatbot/
 │   ├── Views/                 # SwiftUI 界面（纯展示）
 │   ├── DeepSeekChatApp.swift  # @main 入口
 │   └── AppConfiguration.swift # 应用级常量单一入口
-└── Tests/DeepSeekChatTests/   # 185 个单元测试
+└── Tests/DeepSeekChatTests/   # 191 个单元测试
 ```
 
 分层规则（Views → Streaming → Services / Persistence → Domain）与
 接口隔离约定见 [PROJECT_SPEC.md](PROJECT_SPEC.md) §3.1；重构过程与
 决策记录见 [docs/REFACTORING.md](docs/REFACTORING.md) 与
-[docs/decisions](docs/decisions/)。
+[docs/decisions](docs/decisions/)；macOS SwiftUI 交互踩坑记录见
+[docs/PITFALLS.md](docs/PITFALLS.md)。
 
 ## 数据与安全
 
 - **API Key**：macOS 钥匙串（服务 `com.deepseek.chat`），设置后请求由本机应用直接发出，不经任何第三方代理
-- **会话数据**：本地 JSON 文件 `~/Library/Application Support/com.deepseek.chat/sessions.json`，不上传
+- **会话数据**：本地 SQLite（GRDB，WAL 模式，旧 `sessions.json` 启动时一次性
+  迁移），路径 `~/Library/Application Support/com.deepseek.chat/`，不上传
 - **AI 内容**：所有回答由 DeepSeek 模型生成，可能有误，重要信息请自行核实
 
 ## 常见问题（FAQ）

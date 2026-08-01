@@ -234,4 +234,30 @@ final class SidebarRowLayoutTests: XCTestCase {
     func testQuickActionsHiddenForUnselectedUnhoveredRow() {
         XCTAssertFalse(makeRow(isSelected: false).showsQuickActions)
     }
+
+    // MARK: - 快捷按钮样式回归（2026-08-01 实测定位）
+
+    /// 源码守卫：快捷按钮必须用 plain 样式。macOS 实测（2026-08-01）borderless
+    /// 按钮在 ScrollView + LazyVStack 中点击无响应（事件进入手势追踪后不触发
+    /// action），plain / bordered 均正常；曾因误判从 plain 改成 borderless
+    /// 导致真机快捷按钮点击失效。防止该回归再次发生。
+    func testQuickActionButtonsUsePlainStyleInSource() {
+        let sourceURL = URL(fileURLWithPath: "Sources/DeepSeekChat/Views/SidebarView.swift")
+        guard let source = try? String(contentsOf: sourceURL, encoding: .utf8) else {
+            XCTFail("无法读取 SidebarView.swift（测试需从包根目录运行）")
+            return
+        }
+        let quickActionRange =
+            source.range(of: "quickActionButton")?.upperBound
+            ?? source.startIndex
+        let tail = source[quickActionRange...]
+        XCTAssertTrue(
+            tail.contains(".buttonStyle(.plain)"),
+            "快捷按钮必须使用 .plain 样式（borderless 在 ScrollView 内点击无响应）"
+        )
+        XCTAssertFalse(
+            tail.contains(".buttonStyle(.borderless)"),
+            "快捷按钮不得使用 .borderless（macOS 实测在侧栏滚动列表中点击无响应）"
+        )
+    }
 }
