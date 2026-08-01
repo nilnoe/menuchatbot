@@ -1,6 +1,9 @@
 # ADR-0006：MCP 兼容本地工具宿主（分级工具 + 只读 + 非 Agent 约束）
 
 - 状态：已接受（2026-08-01，方向定稿）
+- 修订（2026-08-01）：T2 Python 沙箱降级为**暂缓**——沙箱是弱隔离、
+  默认关闭，与「不做 Agent」无刚需冲突；Tier 4 收窄为 T1 read_file +
+  工具审计（见 TODO Tier 4）。D2 分级与 D3 硬约束不变。
 - 关联：ADR-0004 / ADR-0005、TODO「Rust 核心与 AI 能力规划」
 
 ## 背景
@@ -24,7 +27,7 @@ function calling 完成（Chat Completions 与 Responses API 均支持 `function
 |---|---|---|---|
 | T0 | 计算器 | Rust 内置表达式求值器（`dc_eval_expr`） | 无子进程、无文件、无网络 |
 | T1 | read_file | App 内读文本 | 仅授权根目录内 + 扩展名白名单 + 大小 / 行数上限 |
-| T2 | Python 数学脚本 | 子进程 `python3 -S` | 沙箱 profile + 超时 + 输出 / 内存上限，**默认关闭** |
+| T2 | Python 数学脚本 | 子进程 `python3 -S` | 沙箱 profile + 超时 + 输出 / 内存上限，**默认关闭；2026-08-01 起暂缓** |
 | T3 | 通用 shell | **不做** | 与「避免 Agent」诉求一致，否决 |
 
 ### D3：非 Agent 硬约束
@@ -35,7 +38,7 @@ function calling 完成（Chat Completions 与 Responses API 均支持 `function
 4. 每次调用（名称、参数、结果摘要）写入会话并在 UI 展示，全程可审计；
 5. T2 需全局开关，敏感执行保留确认闸门。
 
-### D4：沙箱为「多层弱隔离」
+### D4：沙箱为「多层弱隔离」（2026-08-01：T2 暂缓，条目保留供恢复时遵循）
 
 seatbelt profile（deny network、deny file-write、只读工作目录）+ 超时强杀 +
 输出截断 + 参数长度限制 + 环境变量清空。明确不宣称强隔离——python 脚本

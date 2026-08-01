@@ -408,7 +408,12 @@ final class ChatStreamControllerTests: XCTestCase {
                 let toolMessage = messages.last(where: { $0["role"] as? String == "tool" })
                 XCTAssertNotNil(toolMessage, "第二轮请求应携带 tool 结果消息")
                 XCTAssertEqual(toolMessage?["tool_call_id"] as? String, "call_1")
-                XCTAssertEqual(toolMessage?["content"] as? String, "结果：3")
+                let content = toolMessage?["content"] as? String ?? ""
+                XCTAssertTrue(content.contains("工具执行成功"))
+                XCTAssertTrue(content.contains("calculator"))
+                XCTAssertTrue(content.contains("耗时"))
+                XCTAssertTrue(content.contains(#"参数：{"expr":"1+2"}"#))
+                XCTAssertTrue(content.contains("结果：3"))
                 return (
                     httpResponse(request, status: 200),
                     Data(
@@ -434,13 +439,70 @@ final class ChatStreamControllerTests: XCTestCase {
         let toolMessage = try XCTUnwrap(messages.last(where: { $0.role == .tool }))
         XCTAssertEqual(toolMessage.toolName, "calculator")
         XCTAssertEqual(toolMessage.toolCallID, "call_1")
-        XCTAssertEqual(toolMessage.content, "结果：3")
+        XCTAssertTrue(toolMessage.content.contains("工具执行成功（calculator，耗时"))
+        XCTAssertTrue(toolMessage.content.contains(#"参数：{"expr":"1+2"}"#))
+        XCTAssertTrue(toolMessage.content.contains("结果：3"))
+        XCTAssertTrue(toolMessage.content.contains("耗时 0.000s"))
 
         let assistantWithCalls = try XCTUnwrap(
             messages.first(where: { !($0.toolCalls?.isEmpty ?? true) })
         )
         XCTAssertEqual(assistantWithCalls.toolCalls?.first?.name, "calculator")
         XCTAssertEqual(assistantWithCalls.toolCalls?.first?.arguments, #"{"expr":"1+2"}"#)
+    }
+
+    /// T4-4：失败调用在会话历史留下完整记录（状态 / 名称 / 耗时 / 参数 / 错误）。
+    func testToolFailureMessageRecordsFullDetailsT44() async throws {
+        let executor = FailingToolExecutor()
+        let registry = try makeToolRegistry(executor: executor)
+        var requestCount = 0
+        let controller = makeToolController(
+            { [self] request in
+                requestCount += 1
+                if requestCount == 1 {
+                    return (
+                        httpResponse(request, status: 200),
+                        Data(toolCallChunks().joined().utf8)
+                    )
+                }
+                return (
+                    httpResponse(request, status: 200),
+                    Data(
+                        [
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"抱歉，无法计算\"}}]}\n\n",
+                            "data: [DONE]\n\n",
+                        ].joined().utf8
+                    )
+                )
+            },
+            toolRegistry: registry
+        )
+
+        let session = store.createSession(title: "工具失败会话")
+        store.appendMessage(sessionID: session.id, ChatMessage(role: .user, content: "计算"))
+        controller.beginAssistantReply(sessionID: session.id)
+        try await waitFor { controller.streamingSessionID == nil }
+
+        let messages = try XCTUnwrap(store.session(id: session.id)?.messages)
+        let toolMessage = try XCTUnwrap(messages.last(where: { $0.role == .tool }))
+        XCTAssertEqual(toolMessage.toolName, "calculator")
+        XCTAssertTrue(toolMessage.content.contains("工具执行失败（calculator，耗时"))
+        XCTAssertTrue(toolMessage.content.contains("耗时 0.250s"))
+        XCTAssertTrue(toolMessage.content.contains(#"参数：{"expr":"1+2"}"#))
+        XCTAssertTrue(toolMessage.content.contains("错误：除数为零"))
+    }
+
+    /// 失败执行器（T4-4 失败路径测试双）。
+    private final class FailingToolExecutor: ToolExecuting, @unchecked Sendable {
+        func execute(_ request: ToolExecutionRequest) async throws -> ToolExecutionResult {
+            ToolExecutionResult(
+                toolName: request.toolName,
+                success: false,
+                output: "",
+                errorMessage: "除数为零",
+                duration: 0.25
+            )
+        }
     }
 
     func testToolCallLoopRespectsMaxRounds() async throws {

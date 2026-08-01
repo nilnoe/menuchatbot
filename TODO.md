@@ -1,12 +1,12 @@
 # DeepSeek Chat 开发路线图（TODO）
 
-> 版本状态：Beta 0.3.2（2026-08-01）
+> 版本状态：Beta 0.3.3（2026-08-01）
 > 本文档是**现行规划**：工程原则 + Rust 核心与 AI 能力路线。
 > 历史 TODO（性能记录 / UI 改进 / Beta 0.2~1.0 路线 / 工程记录 / 长期探索）
 > 已拆分至 [TODO_HISTORY.md](TODO_HISTORY.md)，**降级为低优先级归档**，
 > 以本文档为准。全部文档索引见 [docs/README.md](docs/README.md)。
 
-> **当前状态（2026-08-01）**：测试 334 全绿（cargo test 54 + 集成 1）；
+> **当前状态（2026-08-01）**：测试 358 全绿（cargo test 54 + 集成 1）；
 > 分层架构重构与测试模块化
 > Phase A 已完成（细节见 TODO_HISTORY.md / CHANGELOG.md）；Tier 2
 > 「Rust 骨架与工具链」全部落地（RustCore staticlib + C ABI、构建链与
@@ -14,7 +14,8 @@
 > 工具调用循环、effort=max），细节见 CHANGELOG.md；审计模块方案已定稿
 > （ADR-0009 + ACCEPTANCE §11）；Tier A P1（审计地基 + 四域接入 +
 > 设置页查看器）已实现，P2~P4 待做（见 Tier A）；Tier 3 资料库 RAG
-> 主体已落地（见下）。
+> 主体已落地（见下）；Tier 4 收窄修订后 T1 read_file + T4-4 工具审计
+> 已全部落地（Beta 0.3.3，见下）。
 >
 > **历史进展存档**：0.2.x 性能里程碑、0.3 功能与 UI 收尾等逐项细节见
 > [CHANGELOG.md](CHANGELOG.md) 与 [TODO_HISTORY.md](TODO_HISTORY.md)。
@@ -133,13 +134,25 @@ mock 向量检索区分度差——用真实项目文档作语料跑模糊查询
 2. 注入器加相关性阈值 + top-k 分数差距校验，低于阈值不注入
 3. 中期接 candle 语义 embedding（解决同义词 / 改写等真语义问题）
 
-### Tier 4｜只读文件与脚本沙箱（中高难度，默认关闭）
+### Tier 4｜只读文件工具（中低难度；2026-08-01 方向修订）
 
-- [ ] T1 read_file：根目录内只读 + 扩展名白名单 + 大小 / 行数上限 + 按段截断
-- [ ] T2 python3 -S 沙箱：seatbelt profile（拒网络 / 拒写盘）+ 超时强杀 +
-  输出 / 内存上限 + 环境清空；默认关闭 + 全局开关
-- [ ] 工具审计：每次调用（名称 / 参数 / 结果摘要）写入会话并在 UI 展示
+> **修订（2026-08-01）**：原 T2「python3 -S 沙箱」（seatbelt 弱隔离）评估为
+> 收益 / 可控性不成比例，**降级为暂缓**；Tier 4 收窄为「T1 read_file +
+> 工具审计」。依据：ADR-0006 D4 本就承认沙箱是"多层弱隔离、不宣称强隔离"；
+> 已明确不做 Agent、模型无写权限需求，沙箱无刚需。read_file 采用
+> **结构化 JSON 参数 + 进程内执行**（模型不接触 shell），读边界为
+> 已授权资料库根目录，天然满足「只读可控」。
+
+- [x] T1 read_file：已授权根目录内只读（相对路径）+ 扩展名白名单 +
+  大小 / 行数 / 单行长度上限 + 按段截断（起止行号可预期）——
+  2026-08-01 落地（ReadFileToolExecutor + 22 测试，见 CHANGELOG）
+- [x] 工具审计：每次调用完整记录（状态 / 名称 / 耗时 / 参数 / 结果摘要）
+  写入会话历史并在 UI 展示（T4-4，2026-08-01 落地：executeTool 产出
+  结构化记录，审计事件保留 start/end 成对）
 - [ ] （可选）FSEvents 增量监听资料库变更
+- [ ] （暂缓）T2 python3 -S 沙箱：seatbelt profile（拒网络 / 拒写盘）+
+  超时强杀 + 输出 / 内存上限 + 环境清空；默认关闭 + 全局开关——
+  有明确脚本执行需求后再评估
 
 **验收**：见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) §7。
 
@@ -171,11 +184,26 @@ mock 向量检索区分度差——用真实项目文档作语料跑模糊查询
   2026-08-01 识别为 Tier 3 暴露的缺口（索引已有事件，检索注入没有）
 - [x] P2 FFI：Rust 计数器 + panic hook（崩溃日志）+ `dc_audit_snapshot` +
   分配 / 泄漏断言；cargo audit / fuzz（cron）/ ASan 进 CI（2026-08-01）
-- [ ] P3：read_file / 沙箱门禁审计（随 Tier 4）；哈希链加固（可选）
+- [x] P3 read_file 门禁审计：PathScope 拒绝事件 + 工具执行 start/end
+  随 Tier 4 已覆盖；沙箱门禁随 T2 暂缓；哈希链加固（可选）保留
 - [ ] P4：网络 / 长时推演域事件（随 Tier 5）；保留策略自动执行；导出完善
 - [x] scale 阈值上调（P1 落地校准：6000 → 7500，原因记录在 check-scale.sh）
 
 **验收**：见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) §11（AU-1~AU-21）。
+
+### 后续计划登记（2026-08-01，随 Tier 4 收尾）
+
+- [ ] P1.5 RAG 检索注入审计（沿用 Tier A 条目）：每次检索记录时间 /
+  涉及的资料库 / 命中文件数 / 注入 token 数，**不含查询原文与内容**，
+  设置页可查看——「读文件全留痕、检索注入不留痕」的不对称待补齐
+- [ ] 「两级阅读」衔接：RAG 命中的 Source 卡片（标题 = 文件名，路径）
+  作为 read_file 精读的天然入口——用户从引用卡片可直接要求模型精读
+  该文件；目前衔接是隐式的（卡片仅展示）
+- [ ] 工具结果 token 记账接入 ContextBuilder：read_file 现有输出硬上限
+  （12k 字符）未走统一预算槽位；接入后工具结果与 RAG / 历史截断共用
+  一套预算体系
+- [ ] mock 向量检索替换（沿用 Tier 3 已知问题方案）：BM25 稀疏检索 →
+  candle 语义 embedding，消解「检索像随机截取」的区分度问题
 
 ---
 

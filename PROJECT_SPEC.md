@@ -1,7 +1,7 @@
 # DeepSeek Chat 工程规范
 
 > 本文档是 DeepSeek Chat 的工程规范，所有代码与改动必须遵守。
-> 版本状态：Beta 0.3.1 · 纯 Swift / SwiftUI 原生 macOS 菜单栏应用。
+> 版本状态：Beta 0.3.3 · 纯 Swift / SwiftUI 原生 macOS 菜单栏应用。
 
 ---
 
@@ -113,8 +113,9 @@ Sources/DeepSeekChat/
   维持「无运行时服务进程」约束不变。
 - **只读原则**：任何工具不得提供写 / 删文件能力；工具注册表中不存在这类
   工具。
-- **工具分级**：计算器（Rust 内置）→ 只读文件（授权根目录内）→ Python
-  沙箱（默认关闭）；通用 shell 不做。
+- **工具分级**：计算器（Rust 内置）→ 只读文件（授权根目录内，结构化
+  JSON 参数 + 进程内执行，模型不接触 shell）；Python 沙箱默认关闭且
+  暂缓；通用 shell 不做。
 - **非 Agent 约束**：每轮对话工具调用 ≤ N 次（默认 1~3）、无自主后台任务、
   工具执行全程可见可审计。
 - **权限**：资料库目录经 NSOpenPanel + security-scoped bookmark 授权；所有

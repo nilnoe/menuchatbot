@@ -25,13 +25,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         indexer: libraryIndexer,
         corporaProvider: { [weak settingsStore] in settingsStore?.corpora ?? [] }
     )
-    /// 进程内工具注册表：当前仅注册 T0 计算器（其余分级随 Tier 3/4 落地）。
+    /// 进程内工具注册表：T0 计算器 + T1 read_file（Tier 4）。
     private lazy var toolRegistry: InProcessToolRegistry = {
         let registry = InProcessToolRegistry()
         try? registry.register(
             CalculatorTool.definition,
             executor: CalculatorToolExecutor(
                 service: RustCalculatorService()
+            )
+        )
+        try? registry.register(
+            ReadFileTool.definition,
+            executor: ReadFileToolExecutor(
+                rootsProvider: { [weak settingsStore] in
+                    // 授权根 = 设置页已添加的资料库目录（用户明确授权过）：
+                    // 与 RAG 的启用开关解耦——加了目录即可被只读工具访问。
+                    (settingsStore?.corpora ?? []).map { URL(fileURLWithPath: $0.path) }
+                }
             )
         )
         // 启动自检（ADR-0006 D3.1 / ADR-0009 B 域）：写 / 删工具以「不存在」

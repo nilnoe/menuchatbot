@@ -395,6 +395,7 @@ final class ChatStreamController: ObservableObject {
 
     /// 执行一次工具调用，返回写入会话历史的结果摘要（T2-3c 透明展示）。
     private func executeTool(_ call: APIToolCall, sessionID: UUID) async -> String {
+        let started = Date()
         let requestID = currentRequestID.isEmpty ? nil : currentRequestID
         let argsSummary = AuditRedactor.summary(for: call.function.arguments)
         let toolMetadata = [
@@ -419,7 +420,12 @@ final class ChatStreamController: ObservableObject {
                 requestID: requestID,
                 metadata: toolMetadata
             )
-            return "错误：工具 \(call.function.name) 未注册"
+            return toolFailureRecord(
+                call: call,
+                duration: nil,
+                args: call.function.arguments,
+                error: "工具 \(call.function.name) 未注册"
+            )
         }
         let request = ToolExecutionRequest(
             toolName: call.function.name,
@@ -436,9 +442,19 @@ final class ChatStreamController: ObservableObject {
                 result: result
             )
             if result.success {
-                return "结果：\(result.output)"
+                return toolSuccessRecord(
+                    call: call,
+                    duration: result.duration,
+                    args: call.function.arguments,
+                    output: result.output
+                )
             }
-            return "执行失败：\(result.errorMessage ?? "未知错误")"
+            return toolFailureRecord(
+                call: call,
+                duration: result.duration,
+                args: call.function.arguments,
+                error: result.errorMessage ?? "未知错误"
+            )
         } catch {
             recordToolEnd(
                 success: false,
@@ -447,8 +463,53 @@ final class ChatStreamController: ObservableObject {
                 requestID: requestID,
                 error: error.localizedDescription
             )
-            return "执行异常：\(error.localizedDescription)"
+            return toolFailureRecord(
+                call: call,
+                duration: Date().timeIntervalSince(started),
+                args: call.function.arguments,
+                error: error.localizedDescription
+            )
         }
+    }
+
+    /// T4-4 完整执行记录（成功）：状态 / 工具名 / 耗时 / 参数 / 结果摘要，
+    /// 写入会话历史并随 tool 消息回传 API（下一轮模型可读）。
+    private func toolSuccessRecord(
+        call: APIToolCall,
+        duration: TimeInterval,
+        args: String,
+        output: String
+    ) -> String {
+        """
+        工具执行成功（\(call.function.name)，耗时 \(Self.formatToolDuration(duration))）
+        参数：\(Self.truncatedToolArguments(args))
+        结果：\(output)
+        """
+    }
+
+    /// T4-4 完整执行记录（失败 / 异常 / 未注册共用）；duration 为 nil 表示未执行。
+    private func toolFailureRecord(
+        call: APIToolCall,
+        duration: TimeInterval?,
+        args: String,
+        error: String
+    ) -> String {
+        let durationText = duration.map { "，耗时 \(Self.formatToolDuration($0))" } ?? ""
+        return """
+            工具执行失败（\(call.function.name)\(durationText)）
+            参数：\(Self.truncatedToolArguments(args))
+            错误：\(error)
+            """
+    }
+
+    private static func formatToolDuration(_ interval: TimeInterval) -> String {
+        String(format: "%.3f", interval) + "s"
+    }
+
+    /// 参数写入历史前截断（上限 200 字符），防超长参数撑爆上下文预算。
+    private static func truncatedToolArguments(_ args: String) -> String {
+        guard args.count > 200 else { return args }
+        return String(args.prefix(200)) + "…（参数过长，已截断）"
     }
 
     /// 工具执行结束事件（成功 / 失败共用，AU-9 start/end 成对）。
