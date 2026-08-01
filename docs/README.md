@@ -13,7 +13,7 @@
 | 测试怎么组织、支持 API 手册 | [TESTING](TESTING.md) |
 | 测试模块化规划（Phase A / B / C） | [TESTING_ROADMAP](TESTING_ROADMAP.md) |
 | 发布流程 | [RELEASING](RELEASING.md) |
-| macOS SwiftUI 踩坑经验 | [PITFALLS](PITFALLS.md) |
+| 踩坑与开发经验 | [PITFALLS](PITFALLS.md) |
 | 版本变更历史 | [CHANGELOG](../CHANGELOG.md) |
 | 开发路线图 / 待办 | [TODO](../TODO.md) |
 | 架构决策记录（ADR） | [decisions](decisions/) |
@@ -31,7 +31,8 @@
 - [TESTING](TESTING.md) —— 测试目录约定、命名规范、支持 API 手册。
 - [TESTING_ROADMAP](TESTING_ROADMAP.md) —— 测试模块化分阶段规划与触发条件。
 - [RELEASING](RELEASING.md) —— 发版步骤。
-- [PITFALLS](PITFALLS.md) —— macOS SwiftUI 交互踩坑记录（持续补充）。
+- [PITFALLS](PITFALLS.md) —— 踩坑与开发经验单一来源（交互 / 布局 / 滚动 /
+  数据状态 / 窗口 / 验证方法论；持续补充）。
 
 ### 决策记录（已接受）
 

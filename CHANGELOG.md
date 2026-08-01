@@ -31,10 +31,9 @@
     + `alignment: .center`），窗口高度变化时实时重新居中，替换 0.2.2 的固定
     `padding(.top, 80)` 粗略下移。
     - 实测反馈补充：修复视口尺寸测量——ScrollView 自身的
-      `.background(GeometryReader)` 实测回报 0×0（preference 永远拿不到
-      尺寸），空状态实际并未居中；改为用 GeometryReader 包裹 ScrollView
-      直接取真实消息区尺寸，空状态现在真正落在消息区垂直中点，短会话顶置的
-      minHeight 也随之真正生效。
+      `.background(GeometryReader)` 实测回报 0×0，空状态实际并未居中；
+      改为用 GeometryReader 包裹 ScrollView 取真实消息区尺寸（踩坑细节见
+      [docs/PITFALLS.md](docs/PITFALLS.md) §2.2）。
   - **对话列与主区等比缩放**：消息列由固定 780pt 上限改为占主区宽度 86%
     （两侧各留 7% 空隙），用户 / assistant 气泡按列宽 66% / 92% 等比缩放，
     调整窗口时「对话与主区」比例保持不变、两侧空隙等比变化
@@ -50,56 +49,41 @@
     其中 ChatView 像素测试的扫描坐标按位图缩放修正（`colorAt` 为像素坐标）。
   - 版本号升至 0.3.0（`scripts/make-app.sh` Info.plist 同步）。
 - **实测反馈修复（第二轮）**
-  - **侧栏快捷操作偶发失效**：根因是共享 `hoveredSessionID`——鼠标跨行移动
-    时 leave/enter 顺序不定，后到的 nil 会把新行的 hover 覆盖，按钮闪现消失、
-    点击落空（「取消置顶有时不起作用」）。改为每行自持 hover 状态。
-  - **侧栏按钮点击没反应（第三轮）**：根因是行结构——整行 Button 与叠在其上
-    的快捷 Button 在 ZStack 中重叠，macOS 上点击会被下层行 Button 吃掉
-    （SwiftUI 已知问题，点击 UI 无响应）。改为行内容与快捷按钮「并排」HStack
-    （无重叠命中）；选中行 / hover 行均有完整可点击区域。
+  - **侧栏快捷操作偶发失效**：共享 `hoveredSessionID` 被跨行 leave/enter
+    顺序覆盖导致按钮闪现消失（踩坑细节见 [docs/PITFALLS.md](docs/PITFALLS.md)
+    §1.4）。改为每行自持 hover 状态。
+  - **侧栏按钮点击没反应（第三轮）**：整行 Button 与快捷 Button 在 ZStack
+    重叠，点击被下层行 Button 吃掉；改为并排 HStack（踩坑细节见
+    [docs/PITFALLS.md](docs/PITFALLS.md) §1.1）。
     - 更正（2026-08-01）：当时一并把快捷按钮由 plain 改为 borderless，经
-      实测这是错误判断——borderless 按钮在 ScrollView + LazyVStack 中点击
-      无响应（见下「修复」），已改回 plain。
-  - **重命名改为行内编辑**：`.alert` 弹窗在 NSPanel 上会延迟 / 不出现，
-    重命名改为行内输入框（Enter 确定、Esc 取消、右侧 ✓/✗ 按钮），
-    与主区操作一样即时生效。
+      实测是错误判断——borderless 在滚动列表点击无响应（见
+      [docs/PITFALLS.md](docs/PITFALLS.md) §1.2），已改回 plain。
+  - **重命名改为行内编辑**：`.alert` 在 NSPanel 上延迟 / 不出现（踩坑细节见
+    [docs/PITFALLS.md](docs/PITFALLS.md) §1.5），改为行内输入框
+    （Enter 确定、Esc 取消、右侧 ✓/✗ 按钮）。
   - **置顶图标**：不再用 `pin.slash`（斜线读作「禁止」），未置顶 `pin`、
     已置顶 `pin.fill`（强调色）；点击取消置顶后会话回归初始分组位置。
   - **侧栏加宽**：176 → 200pt（`DesignTokens.Sidebar.width`）。
-  - **设置页不再改变窗口尺寸**：设置页曾固定 420pt 宽——内容固有宽度会把
-    NSPanel 拽窄（autosave 还会记住窄尺寸），返回主界面后窗口无法恢复原大小。
-    改为「撑满窗口 + 表单限宽 420 居中」，打开 / 返回设置窗口尺寸保持不变。
-    新增 `SettingsWindowSizeTests` 回归（复现：切到设置页窗口从 1000 被拽到 420）。
+  - **设置页不再改变窗口尺寸**：固定 420pt 宽曾被 autosave 记住、返回后窗口
+    无法恢复（踩坑细节见 [docs/PITFALLS.md](docs/PITFALLS.md) §5.1）；
+    改为「撑满窗口 + 表单限宽 420 居中」。新增 `SettingsWindowSizeTests` 回归。
   - 测试从 189 增至 190。
 
 ### 修复
 
-- **侧栏会话行快捷按钮点击无响应（已解决，2026-08-01）**：取消置顶 /
-  重命名 / 删除按钮在真机上点击无效。根因是 macOS 上 `.buttonStyle(.borderless)`
-  的按钮在 ScrollView + LazyVStack 中不响应鼠标点击（事件进入 SwiftUI 手势
-  追踪后 action 不触发；`.plain` / `.bordered` 均正常）——2026-07-31 第三轮
-  修复时误将 plain 改为 borderless，反而引入了该问题。
-  - 修复：快捷按钮样式改回 `.plain`（与行主体按钮一致），并排 HStack 结构
-    保留（ZStack 重叠命中问题原本就存在，且已解决）。
-  - 验证方式（进程内真机级验证，无需辅助功能权限）：DEBUG 自检启动真实应用
-    后，用同进程 Accessibility（AXPress）与 AppKit 事件注入点击真实行上的
-    快捷按钮，确认 action 触发、置顶状态翻转；样式对照实验确认
-    plain / bordered 可点击、borderless 不可点击。测试从 190 增至 191
-    （plain 样式源码守卫，防止回归）。
+- **侧栏会话行快捷按钮点击无响应（已解决，2026-08-01）**：`.borderless`
+  按钮在 ScrollView + LazyVStack 中 action 不触发（根因与验证方法见
+  [docs/PITFALLS.md](docs/PITFALLS.md) §1.2 / §6.1）——2026-07-31 第三轮
+  误将 plain 改为 borderless 反而引入该问题。修复：改回 `.plain`（并排
+  HStack 结构保留）。验证：进程内 AXPress + AppKit 事件注入 + 样式对照
+  实验；测试从 190 增至 191（plain 样式源码守卫）。
 
-- **置顶状态下快捷操作与选中态失效（已解决，2026-08-01）**：真机复测发现
-  置顶后「无法取消置顶 / 重命名失效 / 选中态卡在第一个置顶会话，后续置顶
-  会话点击无激活态」。根因是侧栏列表的嵌套 ForEach（外层分组 + 内层会话）
-  + LazyVStack：会话在置顶 / 时间分组之间移动时，SwiftUI 保留旧位置的过期
-  行快照，行内容与闭包（捕获的 isPinned / 标题）仍是移动前的值，置顶组内
-  的操作全部基于过期状态。
-  - 修复①：列表拍平为单一 `ForEach(sidebarItems)`（`SidebarItem` 枚举 =
-    组头 / 会话行，身份稳定），跨组移动变成同一 ForEach 内的 identity 移动；
-  - 修复②：置顶 / 重命名闭包改为从 `sessionStore` 读当前状态，不再依赖
-    捕获的会话快照。
-  - 验证：进程内 AX 注入驱动真实应用——置顶后行立即显示「取消置顶」并可
-    取消、置顶中重命名出现输入框、两个置顶会话切换时选中态只落在一个行上
-    （聊天区标题同步切换）。
+- **置顶状态下快捷操作与选中态失效（已解决，2026-08-01）**：嵌套
+  ForEach + LazyVStack 跨组移动保留过期行快照（根因详见
+  [docs/PITFALLS.md](docs/PITFALLS.md) §1.3）。修复：① 列表拍平为单一
+  `ForEach(sidebarItems)`（组头 / 会话行身份稳定）；② 置顶 / 重命名闭包
+  从 `sessionStore` 读当前状态。验证：进程内 AX 注入驱动真实应用，
+  取消置顶 / 置顶中重命名 / 多置顶会话切换均正常。
 
 - **会话置顶（Beta 0.3）**
   - 侧栏新增「置顶」分组（排在时间分组之前）；hover 快捷按钮与右键菜单
@@ -280,54 +264,5 @@ Beta 0.2：完成 TODO 中第一节全部 P0 性能优化与存储演进，长�
 
 # 开发经验（踩坑记录）
 
-这轮迭代踩过的坑与最终验证过的方法，供后续开发参考。
-
-## 1. `@Published` 对数组的就地修改也会逐字段发布
-
-`@Published var sessions: [ChatSession]` 下，`sessions[i].messages[j].content = x` 这类就地元素修改**同样会触发 objectWillChange**（每个字段一次）。最初实现「流式静默写回存储」时因此白做了假设，测试计数（6 次发布 = 5 字段 + updatedAt）才暴露。
-
-**结论**：需要「写回但不刷新 UI」时，把 setter 改为 `private(set)` 并显式控制 `objectWillChange.send()`；`@Published` 只留给真正需要自动发布的值。
-
-## 2. Swift String 写时复制 + 写回共享缓冲 = 隐藏的 O(n²)
-
-`state.content += chunk` 本身是均摊 O(1)；但一旦把 `state.content` 复制给存储（两个引用共享同一缓冲区），下一次追加就会触发整块 CoW 拷贝，每分片一次全文复制，长回复退化成 O(n²)。
-
-**结论**：流式写回不要逐分片做；配合聚合窗口（40ms）把写回频率压到固定值，CoW 摊薄到可忽略。
-
-## 3. 每 token 一次全文重排
-
-## 4. SwiftUI `.frame(maxWidth:)` 的两种反直觉行为
-
-- 放在 **HStack + Spacer 里的气泡**上：贪婪扩展到 maxWidth，短文本也撑满整行 → 气泡过长。
-- 放在 **VStack 内层**包内容：理想宽度为 0，容器直接塌陷。
-
-**结论**：聊天气泡要「贴合文字 + 限宽换行」，用**行级限宽**——限制整行宽度，气泡在行内自然贴合。
-行为用 GeometryReader 探针实测验证（`BubbleLayoutTests` 固化该规则），不要凭直觉改布局。
-
-即使每消息有独立 ViewModel，分片直接追加仍会让 SwiftUI `Text` 对累积全文重新排版。
-
-**结论**：增量先进 pending 缓冲，按固定时间窗口（30~60ms）聚合提交 UI。这是所有流式聊天客户端的通用做法。
-
-## 4. LazyVStack 程序化滚动到未物化区域 = 空白
-
-长内容下 `proxy.scrollTo("bottom")` 的目标可能从未被 LazyVStack 物化，滚动落点渲染成空白，且**只有用户手动滚动才触发物化**（Apple 论坛 741406 同款问题）。
-
-试过的错误方案：
-
-- 把底部锚点挪出 LazyVStack 常驻物化：目标有效了，但**视口里仍是未物化的消息行**，空白依旧。
-- 把最后几条消息移出 LazyVStack 用外层 VStack 常驻：空白解决，但 **VStack 需要 LazyVStack 的完整高度 → 懒加载被杀死**，每次分片刷新 260ms、每次 resize 330ms（基准实测），全应用卡顿。
-
-**最终方案**：倒置聊天列表（inverted ScrollView）——`ForEach(messages.reversed())`，容器与每行各旋转 180°（双重旋转让文本/选区恢复正向）。新消息天然落在视觉底部，「滚动到底」变成滚动到相邻且必然已物化的一行，LazyVStack 保持直接子级、懒加载完好。
-
-## 5. 旧 Task 收尾覆盖新一轮流式状态（竞态）
-
-`stop()` 取消任务后，任务要等网络栈把取消传播完才继续执行收尾代码；若用户紧接着发送新消息，旧任务的收尾会把新任务的 `streamingSessionID / streamingState` 清成 nil，新回复失去流式标记，长输出按最终路径每分片全文解析 → 卡死。
-
-**结论**：异步任务收尾写共享状态前，先校验状态仍属于自己（如 `streamingState === 本次 state`）；再给消息自身维护 `isStreaming` 标记兜底，行内渲染不依赖可能被覆盖的外部状态。
-
-## 6. 验证方法论
-
-- **真实视图挂窗渲染测试**：把完整 ChatView 挂进 `NSHostingView` + `NSWindow`，强制布局后 `cacheDisplay` 截图，用「非背景像素占比」判断消息区是否空白；强制浅色外观让指标有效（深色模式下空白背景也是深色，指标失真）。
-- **系统日志取证**：`/usr/bin/log show --predicate 'process == "DeepSeekChat"'` 配合数据库更新时间，能还原用户操作时序（如 -999 取消流与复现时刻吻合）。
-- **对照实验**：怀疑某改动导致回归时，临时还原旧实现跑同一测试/基准，确认测试真的能抓到问题，再恢复修复。
-- **基准先行**：性能回归用可量化的布局耗时对比（流式 flush / resize 毫秒数），不要靠感觉。
+> 踩坑与开发经验自 2026-08 起统一收录于 [docs/PITFALLS.md](docs/PITFALLS.md)
+> （本文档只记录版本变更，不再承载知识库）。
