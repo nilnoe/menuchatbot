@@ -60,7 +60,8 @@
   消息保底；RAG 注入 / 工具结果记账槽位预留）
 - [x] IndexEventPublishing：SessionStore → 索引协调的事件发布协议
   （append / update / commit / delete / 导入发布，流式中间写回不发布）
-- [ ] ToolRegistry / ToolExecutor 协议：工具注册与执行契约（实现随 Tier 2）
+- [x] ToolRegistry / ToolExecutor 协议：工具注册与执行契约（分级 T0~T2，
+  进程内注册表已落地；执行器实现随 Tier 2）
 - [ ] 设置数据模型扩展：命名资料库列表（名称 / 路径 / 开关）、长时推演时长、
   工具开关（SettingsStore + 设置页）
 - [ ] 路径授权基建：NSOpenPanel 选目录 + security-scoped bookmark 持久化 +

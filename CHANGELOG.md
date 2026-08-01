@@ -71,6 +71,10 @@
   `IndexEventPublishing` / `IndexEvent` 契约，SessionStore 在
   append / update / commit / delete / 导入时发布索引事件（流式中间写回
   不发布，避免洪泛）。新增测试 8 个（测试 214 → 222）。
+- **工具契约（Tier 1 第二批，第二批）**：新增 `ToolTier`（T0~T2，无 T3
+  shell）、`ToolDefinition`（MCP 风格 JSON Schema）、`ToolExecuting` /
+  `ToolRegistry` 协议与进程内注册表（名称唯一、分级、查询）；执行器
+  实现随 Tier 2。新增注册表测试 6 个（测试 222 → 228）。
 
 ## [0.3.0] - 2026-08-01
 
