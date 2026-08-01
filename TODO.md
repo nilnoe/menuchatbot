@@ -48,7 +48,9 @@
   store 层分页 API + 渲染接线）
 - [x] 消息表派生列：tokenTotal / contentHash / indexVersion（GRDB migration；
   indexVersion 的"索引成功后更新"随 Tier 3 索引器落地）
-- [ ] 流式存储写放大修复（存储降频 + 后台写队列）+ messageStates LRU 上限
+- [x] 流式存储写放大修复（UI 40ms 聚合不变，落库降频至 ~240ms；
+  中间 sync 不再 touch 会话时间戳，commit 统一落库）+ messageStates LRU
+  上限（200，最近使用不逐出）
 - [x] 性能基线扩展：启动 10k 消息、流式存储吞吐、侧栏派生计算
   （XCTMeasure，DataFoundationBaselineTests）
 

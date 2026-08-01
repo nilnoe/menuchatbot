@@ -60,6 +60,11 @@
 - **数据地基性能基线**：新增 `DataFoundationBaselineTests`——启动加载
   1 万消息、侧栏派生计算（200 会话）、流式存储吞吐（XCTMeasure），
   阈值按 ACCEPTANCE §9 先测后校。
+- **流式写放大修复（Tier 1-3）+ messageStates LRU（Tier 1-4）**：UI 保持
+  40ms 聚合，落库降频至每 6 次（~240ms），中间 `syncMessage` 只写消息行、
+  不再 touch 会话时间戳（写放大约 -12x），`commitMessage` 统一落库时间戳
+  保证崩溃恢复语义；消息状态上限 200 条 LRU 逐出（当前会话/流式消息因
+  渲染频繁而保持新鲜）。新增落库时序与 LRU 测试 3 个（测试 211 → 214）。
 
 ## [0.3.0] - 2026-08-01
 

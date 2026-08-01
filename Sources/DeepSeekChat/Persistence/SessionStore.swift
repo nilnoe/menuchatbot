@@ -17,6 +17,13 @@ final class SessionStore: ObservableObject {
     /// 消息 ID -> 消息状态。同一消息始终复用同一个状态对象，
     /// 保证流式更新只刷新该消息所在的视图。
     private var messageStates: [UUID: MessageState] = [:]
+    /// 消息状态 LRU 顺序（Tier 1-4）：超出上限逐出最久未用的状态，
+    /// 避免长期使用内存准泄漏。当前会话 / 流式消息因渲染频繁而保持新鲜。
+    private var messageStateOrder: [UUID] = []
+    private static let messageStateLimit = 200
+
+    /// 测试钩子：当前驻留的消息状态数（ACCEPTANCE T1-4a）。
+    var messageStateCount: Int { messageStates.count }
 
     init(storageDirectory: URL? = nil) {
         let dir = storageDirectory ?? SessionStore.defaultDirectory()
@@ -253,6 +260,7 @@ final class SessionStore: ObservableObject {
         if let session = session(id: id) {
             for message in session.messages {
                 messageStates.removeValue(forKey: message.id)
+                messageStateOrder.removeAll { $0 == message.id }
             }
         }
         messageCache.removeValue(forKey: id)
@@ -287,6 +295,7 @@ final class SessionStore: ObservableObject {
         sessions[sessionIndex].lastMessageHasSources = !(updated.last?.sources?.isEmpty ?? true)
         sessions[sessionIndex].updatedAt = Date()
         messageStates.removeValue(forKey: messageID)
+        messageStateOrder.removeAll { $0 == messageID }
 
         do {
             try dbQueue.write { db in
@@ -604,11 +613,26 @@ final class SessionStore: ObservableObject {
     /// 取（或按需创建）一条消息的可观察状态。同一条消息始终返回同一实例。
     func messageState(for message: ChatMessage) -> MessageState {
         if let state = messageStates[message.id] {
+            touchMessageState(message.id)
             return state
         }
         let state = MessageState(message: message)
         messageStates[message.id] = state
+        touchMessageState(message.id)
+        evictMessageStatesIfNeeded()
         return state
+    }
+
+    private func touchMessageState(_ id: UUID) {
+        messageStateOrder.removeAll { $0 == id }
+        messageStateOrder.append(id)
+    }
+
+    private func evictMessageStatesIfNeeded() {
+        while messageStates.count > Self.messageStateLimit, !messageStateOrder.isEmpty {
+            let evicted = messageStateOrder.removeFirst()
+            messageStates.removeValue(forKey: evicted)
+        }
     }
 
     /// 流式期间把最新内容写回存储，**不**触发 UI 通知，仅保证中途退出不丢已生成内容。
@@ -628,17 +652,30 @@ final class SessionStore: ObservableObject {
         sessions[sessionIndex].totalTokens += newTokens - oldTokens
         sessions[sessionIndex].lastMessageHasSources = !(messages.last?.sources?.isEmpty ?? true)
         sessions[sessionIndex].updatedAt = Date()
+        // 流式中间写回：只写消息行、不 touch 会话 updatedAt（写放大减半；
+        // 会话时间戳在 commitMessage 时统一落库，行为对外不变）。
         persistMessage(
             messages[messageIndex],
             sessionID: sessionID,
             position: messageIndex,
-            updatedAt: sessions[sessionIndex].updatedAt
+            updatedAt: sessions[sessionIndex].updatedAt,
+            touch: false
         )
     }
 
     /// 流式结束 / 停止时调用：把最终内容写回存储，并发布一次（刷新会话元数据）。
     func commitMessage(_ state: MessageState, sessionID: UUID) {
         syncMessage(state, sessionID: sessionID)
+        if let sessionIndex = sessions.firstIndex(where: { $0.id == sessionID }) {
+            let updatedAt = sessions[sessionIndex].updatedAt
+            do {
+                try dbQueue.write { db in
+                    try touchSession(db, sessionID: sessionID, updatedAt: updatedAt)
+                }
+            } catch {
+                AppLog.storage.error("提交会话时间戳写库失败: \(error, privacy: .public)")
+            }
+        }
         objectWillChange.send()
     }
 
@@ -646,13 +683,16 @@ final class SessionStore: ObservableObject {
 
     /// 单行写入：更新一条消息 + 会话 updatedAt，无需整库序列化。
     private func persistMessage(
-        _ message: ChatMessage, sessionID: UUID, position: Int, updatedAt: Date
+        _ message: ChatMessage, sessionID: UUID, position: Int, updatedAt: Date,
+        touch: Bool = true
     ) {
         do {
             try dbQueue.write { db in
                 var record = makeMessageRecord(message, sessionID: sessionID, position: position)
                 try record.upsert(db)
-                try touchSession(db, sessionID: sessionID, updatedAt: updatedAt)
+                if touch {
+                    try touchSession(db, sessionID: sessionID, updatedAt: updatedAt)
+                }
             }
         } catch {
             AppLog.storage.error("更新消息写库失败: \(error, privacy: .public)")

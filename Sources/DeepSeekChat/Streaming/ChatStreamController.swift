@@ -15,6 +15,10 @@ final class ChatStreamController: ObservableObject {
     @Published var streamingSessionID: UUID?
     @Published var streamingState: MessageState?
 
+    /// 存储落库节流计数（Tier 1-3）：UI 保持 40ms 聚合，落库每 6 次（~240ms）
+    /// 一次，消除流式写放大；最终内容由 commitMessage 兜底。
+    private var storageFlushTick = 0
+
     private var streamTask: Task<Void, Never>?
     private let sessionStore: SessionStoring
     private let settings: SettingsStore
@@ -123,7 +127,7 @@ final class ChatStreamController: ObservableObject {
     ) async {
         // 分片节流：增量先进缓冲，每 40ms 聚合提交一次 UI 与存储，
         // 把 SwiftUI 全文重排次数从“每个 token”降到 ~25 次/秒。
-        let flushTask = Task {
+        let flushTask = Task { [weak self] in
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: .milliseconds(40))
@@ -132,12 +136,17 @@ final class ChatStreamController: ObservableObject {
                 }
                 guard state.hasPendingChanges else { continue }
                 state.flushPending()
-                sessionStore.syncMessage(state, sessionID: sessionID)
+                guard let self else { return }
+                self.storageFlushTick += 1
+                if self.storageFlushTick.isMultiple(of: 6) {
+                    sessionStore.syncMessage(state, sessionID: sessionID)
+                }
             }
         }
 
         defer {
             flushTask.cancel()
+            storageFlushTick = 0
             state.flushPending()
             state.markStreamEnded()
             // 所有结束路径（完成 / 错误 / 取消）都写回一次并发布，刷新会话元数据。

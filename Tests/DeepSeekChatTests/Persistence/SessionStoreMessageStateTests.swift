@@ -1,4 +1,5 @@
 import Combine
+import GRDB
 import XCTest
 
 @testable import DeepSeekChat
@@ -126,5 +127,82 @@ final class SessionStoreMessageStateTests: XCTestCase {
 
         state.markStreamEnded()
         XCTAssertFalse(state.isStreaming, "结束标记后恢复非流式渲染")
+    }
+
+    // MARK: - 流式存储写放大（Tier 1-3，ACCEPTANCE T1-3a / T1-3c）
+
+    func testSyncWritesRowWithoutTouchingSessionUntilCommit() throws {
+        let store = harness.makeStore()
+        let session = store.createSession(title: "写放大")
+        let message = ChatMessage(role: .assistant, content: "")
+        store.appendMessage(sessionID: session.id, message)
+        let state = store.messageState(for: message)
+
+        let queue = try DatabaseQueue(
+            path: harness.tempDir.appendingPathComponent("sessions.sqlite").path)
+        let sessionUpdatedAt = { () throws -> Date in
+            try queue.read { db in
+                try Date.fetchOne(db, sql: "SELECT updatedAt FROM session") ?? .distantPast
+            }
+        }
+        let before = try sessionUpdatedAt()
+        Thread.sleep(forTimeInterval: 0.01)
+
+        state.appendContent("流式内容")
+        state.flushPending()
+        store.syncMessage(state, sessionID: session.id)
+
+        // 中间写回：消息行已落库（崩溃恢复不丢内容），会话时间戳不动。
+        let content = try queue.read { db in
+            try String.fetchOne(db, sql: "SELECT content FROM message")
+        }
+        XCTAssertEqual(content, "流式内容")
+        XCTAssertEqual(try sessionUpdatedAt(), before, "中间 sync 不应 touch 会话时间戳")
+
+        store.commitMessage(state, sessionID: session.id)
+        let afterCommit = try sessionUpdatedAt()
+        XCTAssertGreaterThan(
+            afterCommit.timeIntervalSince(before), 0, "commit 应把会话时间戳落库")
+    }
+
+    // MARK: - messageStates LRU（Tier 1-4，ACCEPTANCE T1-4a / T1-4b）
+
+    func testMessageStatesEvictedAtLimit() {
+        let store = harness.makeStore()
+        let messages = (0..<250).map { ChatMessage(role: .user, content: "m\($0)") }
+        var states: [UUID: MessageState] = [:]
+        for message in messages {
+            states[message.id] = store.messageState(for: message)
+        }
+
+        XCTAssertLessThanOrEqual(store.messageStateCount, 200, "状态数不应超过上限")
+        // 最早创建的已被逐出：再取得到新实例。
+        XCTAssertFalse(states[messages[0].id] === store.messageState(for: messages[0]))
+        // 最近创建的仍共享同一实例。
+        XCTAssertTrue(states[messages[249].id] === store.messageState(for: messages[249]))
+    }
+
+    func testRecentlyTouchedStateSurvivesEviction() {
+        let store = harness.makeStore()
+        let messages = (0..<200).map { ChatMessage(role: .user, content: "m\($0)") }
+        var states: [UUID: MessageState] = [:]
+        for message in messages {
+            states[message.id] = store.messageState(for: message)
+        }
+
+        // 重新触摸第一条（移到最热端），再插入两条触发逐出。
+        XCTAssertTrue(states[messages[0].id] === store.messageState(for: messages[0]))
+        let extra1 = ChatMessage(role: .user, content: "x1")
+        let extra2 = ChatMessage(role: .user, content: "x2")
+        _ = store.messageState(for: extra1)
+        _ = store.messageState(for: extra2)
+
+        XCTAssertTrue(
+            states[messages[0].id] === store.messageState(for: messages[0]),
+            "最近触摸的消息状态不应被逐出")
+        XCTAssertFalse(
+            states[messages[1].id] === store.messageState(for: messages[1]),
+            "最久未用的消息状态应被逐出")
+        XCTAssertTrue(store.messageState(for: extra2) === store.messageState(for: extra2))
     }
 }
