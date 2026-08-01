@@ -50,6 +50,27 @@ final class ChatStreamControllerTests: XCTestCase {
         )
     }
 
+    /// 工具调用循环测试专用：MockURLProtocol 一次性同步投递完整 SSE 响应，
+    /// 不引入分片间隔，避免 CI 慢机上「分片延迟 + 轮询超时」叠加的时序抖动。
+    private func makeToolController(
+        _ handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data),
+        toolRegistry: ToolRegistry? = nil,
+        maxToolRounds: Int = AppConfiguration.defaultMaxToolRounds
+    ) -> ChatStreamController {
+        MockURLProtocol.handler = handler
+        return ChatStreamController(
+            sessionStore: store,
+            settings: settings,
+            toolRegistry: toolRegistry,
+            maxToolRounds: maxToolRounds,
+            makeClient: { _, baseURL in
+                DeepSeekClient(
+                    baseURL: baseURL, apiKey: "test-key",
+                    session: self.makeMockURLSession())
+            }
+        )
+    }
+
     private func waitFor(
         timeout: Duration = .seconds(10),
         _ condition: () -> Bool
@@ -365,11 +386,14 @@ final class ChatStreamControllerTests: XCTestCase {
         let registry = try makeToolRegistry(executor: executor)
         var requestCount = 0
 
-        let controller = makeController(
+        let controller = makeToolController(
             { [self] request in
                 requestCount += 1
                 if requestCount == 1 {
-                    return (httpResponse(request, status: 200), toolCallChunks(), 0.02)
+                    return (
+                        httpResponse(request, status: 200),
+                        Data(toolCallChunks().joined().utf8)
+                    )
                 }
                 // 第二轮：验证历史中已包含 tool 消息。
                 let body = try httpBody(of: request)
@@ -383,11 +407,12 @@ final class ChatStreamControllerTests: XCTestCase {
                 XCTAssertEqual(toolMessage?["content"] as? String, "结果：3")
                 return (
                     httpResponse(request, status: 200),
-                    [
-                        "data: {\"choices\":[{\"delta\":{\"content\":\"答案是 3\"}}]}\n\n",
-                        "data: [DONE]\n\n",
-                    ],
-                    0.02
+                    Data(
+                        [
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"答案是 3\"}}]}\n\n",
+                            "data: [DONE]\n\n",
+                        ].joined().utf8
+                    )
                 )
             }, toolRegistry: registry)
 
@@ -419,22 +444,23 @@ final class ChatStreamControllerTests: XCTestCase {
         let registry = try makeToolRegistry(executor: executor)
         var requestCount = 0
 
-        let controller = makeController(
+        let controller = makeToolController(
             { [self] request in
                 requestCount += 1
                 if requestCount <= 4 {
                     return (
                         httpResponse(request, status: 200),
-                        toolCallChunks(id: "call_\(requestCount)"), 0.02
+                        Data(toolCallChunks(id: "call_\(requestCount)").joined().utf8)
                     )
                 }
                 return (
                     httpResponse(request, status: 200),
-                    [
-                        "data: {\"choices\":[{\"delta\":{\"content\":\"最终答案\"}}]}\n\n",
-                        "data: [DONE]\n\n",
-                    ],
-                    0.02
+                    Data(
+                        [
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"最终答案\"}}]}\n\n",
+                            "data: [DONE]\n\n",
+                        ].joined().utf8
+                    )
                 )
             }, toolRegistry: registry, maxToolRounds: 3)
 
@@ -459,23 +485,24 @@ final class ChatStreamControllerTests: XCTestCase {
         let registry = try makeToolRegistry(executor: executor)
         var requestCount = 0
 
-        let controller = makeController(
+        let controller = makeToolController(
             { [self] request in
                 requestCount += 1
                 // 第一轮请求两个工具调用；第二轮不应发生（stop 后）。
                 if requestCount == 1 {
                     return (
                         httpResponse(request, status: 200),
-                        [
-                            "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"calculator\",\"arguments\":\"{}\"}},{\"index\":1,\"id\":\"c2\",\"function\":{\"name\":\"calculator\",\"arguments\":\"{}\"}}]}}]}\n\n",
-                            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
-                            "data: [DONE]\n\n",
-                        ],
-                        0.02
+                        Data(
+                            [
+                                "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":\"calculator\",\"arguments\":\"{}\"}},{\"index\":1,\"id\":\"c2\",\"function\":{\"name\":\"calculator\",\"arguments\":\"{}\"}}]}}]}\n\n",
+                                "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+                                "data: [DONE]\n\n",
+                            ].joined().utf8
+                        )
                     )
                 }
                 XCTFail("stop 后不应发起第二轮请求")
-                return (httpResponse(request, status: 500), [], 0)
+                return (httpResponse(request, status: 500), Data())
             }, toolRegistry: registry)
 
         let session = store.createSession(title: "竞态")

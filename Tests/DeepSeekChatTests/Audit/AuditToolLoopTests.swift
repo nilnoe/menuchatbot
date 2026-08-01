@@ -39,19 +39,23 @@ final class AuditToolLoopTests: XCTestCase {
         let executor = RecordingToolExecutor()
         let registry = try makeToolRegistry(executor: executor)
         var requestCount = 0
-        let controller = makeController(
+        let controller = makeToolController(
             { [self] request in
                 requestCount += 1
                 if requestCount == 1 {
-                    return (httpResponse(request, status: 200), toolCallChunks(), 0.02)
+                    return (
+                        httpResponse(request, status: 200),
+                        Data(toolCallChunks().joined().utf8)
+                    )
                 }
                 return (
                     httpResponse(request, status: 200),
-                    [
-                        "data: {\"choices\":[{\"delta\":{\"content\":\"答案是 3\"}}]}\n\n",
-                        "data: [DONE]\n\n",
-                    ],
-                    0.02
+                    Data(
+                        [
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"答案是 3\"}}]}\n\n",
+                            "data: [DONE]\n\n",
+                        ].joined().utf8
+                    )
                 )
             },
             toolRegistry: registry
@@ -86,23 +90,23 @@ final class AuditToolLoopTests: XCTestCase {
         let executor = RecordingToolExecutor()
         let registry = try makeToolRegistry(executor: executor)
         var requestCount = 0
-        let controller = makeController(
+        let controller = makeToolController(
             { [self] request in
                 requestCount += 1
                 if requestCount <= 4 {
                     return (
                         httpResponse(request, status: 200),
-                        toolCallChunks(id: "call_\(requestCount)"),
-                        0.02
+                        Data(toolCallChunks(id: "call_\(requestCount)").joined().utf8)
                     )
                 }
                 return (
                     httpResponse(request, status: 200),
-                    [
-                        "data: {\"choices\":[{\"delta\":{\"content\":\"最终答案\"}}]}\n\n",
-                        "data: [DONE]\n\n",
-                    ],
-                    0.02
+                    Data(
+                        [
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"最终答案\"}}]}\n\n",
+                            "data: [DONE]\n\n",
+                        ].joined().utf8
+                    )
                 )
             },
             toolRegistry: registry,
@@ -122,12 +126,14 @@ final class AuditToolLoopTests: XCTestCase {
 
     // MARK: - 脚手架
 
-    private func makeController(
-        _ handler: @escaping (URLRequest) throws -> (HTTPURLResponse, [String], TimeInterval),
+    /// 工具循环审计测试专用：MockURLProtocol 一次性同步投递完整 SSE 响应，
+    /// 不引入分片间隔，避免 CI 慢机上「分片延迟 + 轮询超时」叠加的时序抖动。
+    private func makeToolController(
+        _ handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data),
         toolRegistry: ToolRegistry? = nil,
         maxToolRounds: Int = AppConfiguration.defaultMaxToolRounds
     ) -> ChatStreamController {
-        DelayedStreamingURLProtocol.handler = handler
+        MockURLProtocol.handler = handler
         return ChatStreamController(
             sessionStore: store,
             settings: settings,
@@ -138,7 +144,7 @@ final class AuditToolLoopTests: XCTestCase {
                 DeepSeekClient(
                     baseURL: baseURL,
                     apiKey: "test-key",
-                    session: self.makeDelayedStreamingURLSession()
+                    session: self.makeMockURLSession()
                 )
             }
         )
