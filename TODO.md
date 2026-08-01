@@ -156,7 +156,8 @@
 低优先级候选（按需从归档捞起、重新评估后再进本表）：
 
 - 键盘快捷键（⌘N / ⌘1~9 / Esc 收面板）与全局热键（如 ⌥Space）
-- 1.0 发布：Developer ID 签名公证 + dmg / Sparkle 自动更新
+- 1.0 发布：universal 双架构产物（Intel + Apple Silicon，当前 CI 仅
+  arm64）+ Developer ID 签名公证 + dmg / Sparkle 自动更新
 - 无障碍（VoiceOver、动态字体）、多语言（中 / 英）
 - iCloud 同步（隐私取舍，默认关闭）
 - 语音输入（macOS 听写 / Whisper API）、多标签页 / 分屏对比回复

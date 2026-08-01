@@ -272,6 +272,31 @@ task.cancel()
 **教训**：AsyncStream 的"先发布后消费"语义适合生产（不丢事件），不适合
 直接做测试断言；测试要显式控制事件窗口。
 
+### 6.5 延迟流式测试桩：独立 asyncAfter 到并发队列会乱序投递
+
+**现象**：`DelayedStreamingURLProtocol` 最初为每个分片单独 `asyncAfter`
+调度到 `DispatchQueue.global()`，CI 慢机负载下偶发 `[DONE]` 先于 usage
+分片到达；客户端在 `[DONE]` 处提前 `return`，usage 等末尾事件被丢弃
+（`testStreamUsagePersistedToMessage` 偶发 usage=nil，本地复现不出）。
+
+**根因**：全局队列是**并发**的，多个已就绪的 work item 可同时执行，
+投递顺序不受调度顺序保证。
+
+**规避**：链式投递——每片投递完再调度下一片（固定间隔），任意时刻只有
+一个在途分片，严格保序；`stopLoading()` 置位 `finished`，已调度未执行的
+片自动放弃，取消语义不变。不需要分片时序的用例（工具循环 / 纯持久化）
+直接用 `MockURLProtocol` 一次性同步投递完整 SSE，连间隔都不要引入。
+
+### 6.6 轮询等待的断言目标要是「业务不变量」，不是中间信号
+
+**现象**：`testStopPreventsFurtherToolExecution` 等
+`executor.completedCount >= 1` 后立刻断言结果已落库，CI 慢机偶发拿到
+0 条 tool 消息——执行器返回结果与控制器把结果写回存储之间还有异步间隔。
+
+**结论**：`waitFor` 的条件直接轮询被测业务不变量（如
+`store.session(id:)?.messages.contains { $0.role == .tool }`），不要轮询
+中间信号（执行器完成、`streamingSessionID` 清空）后再假设后续状态已就绪。
+
 ## 7. 排查心法
 
 - 症状"点击没反应"至少有三种可能：事件没到（命中链）、事件到了但 action
@@ -281,3 +306,74 @@ task.cancel()
   都可能持有旧快照。凡依赖"当前值"的操作，一律从数据源读。
 - 修一个"玄学" bug 前，先做对照实验（同结构换样式、换容器、加/删修饰器），
   用排除法锁定唯一变量。
+
+## 8. 构建、CI 与发布
+
+### 8.1 actions-rust-lang/audit@v1 的输入是 `file`，不是 `args`
+
+**现象**：CI 上 cargo audit 步骤报 "Couldn't load Cargo.lock"；
+`args: --manifest-path ...` 与 `args: --file ...` 都无效。
+
+**根因**：该 action 没有 `args` 输入（README 输入表只有
+`file` / `ignore` / `deny` 等）。
+
+**规避**：
+
+```yaml
+uses: actions-rust-lang/audit@v1
+with:
+  file: RustCore/Cargo.lock
+```
+
+### 8.2 Apple `nm` 读不了 LLVM 22 的 LTO+strip release 对象
+
+**现象**：release（lipo universal + LTO + strip）库做 ABI 导出符号校验时，
+系统 `nm` 报 `Unknown attribute kind (105)`（stderr 被脚本 `2>/dev/null`
+吞掉），13 个符号全判 missing；同环境下 debug（无 LTO）单架构库却能正常
+读取。本地有 Homebrew llvm-nm 时一切正常，CI macos-14 上必挂。
+
+**根因**：Rust 1.96（LLVM 22）产出的对象带 Apple nm 不认识的 module
+attribute；debug 对象无 LTO 所以幸免。符号其实都在（llvm-nm 可读）。
+
+**规避**：ABI 校验优先用 Rust 工具链自带的 llvm-nm——`rustup component add
+llvm-tools-preview`，路径
+`$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/^host: //p')/bin/llvm-nm`，
+LLVM 版本与编译器严格一致；CI 的 rust-toolchain 步骤把 `llvm-tools-preview`
+加进 `components:`。stub 库（cc/ar 编译）系统 nm 可读，降级路径不受影响。
+
+**验证**：`./scripts/build-rust-core.sh`（release）本地与 CI 均输出
+「ABI 校验通过（13 个导出符号全部存在）」。
+
+### 8.3 SwiftPM 不会自动重链被替换的静态库
+
+**现象**：本地在 stub ↔ 真实库之间反复切换构建后，`swift test` 的 FFI
+测试报「Rust 核心不可用」；`swift package clean` 后立刻全绿——测试
+二进制仍链着旧库。
+
+**根因**：`dist/librustcore.a` 被替换但 SwiftPM 未把内容变化纳入重构建
+判定，产物缓存未失效。
+
+**规避**：切换 RustCore 产物形态（stub ↔ 真实 / debug ↔ release）后，
+先 `swift package clean`（或确认已重链）再跑测试；CI 每次全新 checkout，
+不受此影响。
+
+**教训**：怀疑 FFI 行为突变时，先确认测试二进制链接的库与磁盘上的库一致，
+再怀疑代码。
+
+### 8.4 upload-artifact 对单目录 path 会剥掉顶层目录
+
+**现象**：`path: dist/DeepSeek Chat.app` 上传的产物下载回来是
+`Contents/`（.app 被剥掉外层），`gh run download` 后没有 .app 目录。
+
+**规避**：下载后重新包一层 `DeepSeek Chat.app` 再
+`ditto -c -k --keepParent` 压 zip 挂到 Release；签名在
+`Contents/_CodeSignature` 内，重新打包不破坏。
+
+### 8.5 Release 先建、tag 后强推的流程注意
+
+**现象**：tag 曾指向旧提交、Release 说明已提前写好；修复后
+`git tag -f` + force push，Release 自动跟随新 tag（无需重建），CI 基于
+新 tag 重新触发完整流水线（含 release job）。
+
+**结论**：强推 tag 不会丢 Release，但等 CI 全绿后再下载产物挂附件，
+避免把失败 run 的产物发出去。
