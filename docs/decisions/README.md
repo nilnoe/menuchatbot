@@ -8,3 +8,7 @@
 | [0001](0001-layered-architecture-and-streaming-seam.md) | 分层架构与流式边界 | 已接受（2026-07-31） | [REFACTORING](../REFACTORING.md) |
 | [0002](0002-custom-model-provider.md) | 自定义模型供应商 | 已接受（2026-07-31） | TODO「Beta 0.3」 |
 | [0003](0003-test-modularization.md) | 测试代码模块化 | 已接受（2026-08-01） | [TESTING_ROADMAP](../TESTING_ROADMAP.md) |
+| [0004](0004-rust-core-index-engine.md) | Rust 核心集成（静态库 + C ABI） | 已接受（2026-08-01，方向定稿） | [DESIGN_RUST_CORE](../DESIGN_RUST_CORE.md) |
+| [0005](0005-local-library-rag.md) | 本地资料库 RAG | 已接受（2026-08-01，方向定稿） | TODO「Rust 核心与 AI 能力规划」 |
+| [0006](0006-mcp-tool-host.md) | MCP 兼容本地工具宿主 | 已接受（2026-08-01，方向定稿） | TODO「Rust 核心与 AI 能力规划」 |
+| [0007](0007-extended-deliberation.md) | 长时推演模式 | 已接受（2026-08-01，方向定稿） | TODO「Rust 核心与 AI 能力规划」 |

@@ -42,6 +42,8 @@
 - 语言 / 平台：Swift 5.9+，macOS 14+（Apple Silicon / Intel）
 - UI：SwiftUI（菜单栏 / 面板用 AppKit `NSStatusItem` + `NSPanel` 承载）
 - 持久化：GRDB 6（SQLite，WAL 模式），FTS5 预留全文搜索
+- 核心索引（规划）：Rust（candle + usearch）经 C ABI 静态库集成，
+  见 ADR-0004 与 [docs/DESIGN_RUST_CORE.md](docs/DESIGN_RUST_CORE.md)
 - Markdown：MarkdownUI 2.x（swift-markdown 解析）
 - 构建：SwiftPM，`scripts/make-app.sh` 打包 .app 并本地签名
 
@@ -95,6 +97,23 @@ Sources/DeepSeekChat/
    `ChatStreamController` / Store 层。
 4. **例外**：`Views/CodeHighlighter.swift` 引入 Highlighter 属视图层渲染
    适配器（MarkdownUI `CodeSyntaxHighlighter` 实现），是刻意保留的例外。
+
+### 3.2 Rust 核心与本地能力（方向定稿 2026-08，落地见 ADR-0004~0007）
+
+- **定位**：Rust 只承担「派生索引与确定性计算」——对话历史索引、资料库
+  检索、计算器求值；SQLite 仍是事实源，索引可整体重建。
+- **集成形态**：staticlib + 最小 C ABI（JSON 出入），经 Swift 协议隔离；
+  维持「无运行时服务进程」约束不变。
+- **只读原则**：任何工具不得提供写 / 删文件能力；工具注册表中不存在这类
+  工具。
+- **工具分级**：计算器（Rust 内置）→ 只读文件（授权根目录内）→ Python
+  沙箱（默认关闭）；通用 shell 不做。
+- **非 Agent 约束**：每轮对话工具调用 ≤ N 次（默认 1~3）、无自主后台任务、
+  工具执行全程可见可审计。
+- **权限**：资料库目录经 NSOpenPanel + security-scoped bookmark 授权；所有
+  路径访问做规范化 + symlink 防逃逸的包含检查。
+- **上下文预算**：历史截断 / RAG 注入 / 工具结果统一走 ContextBuilder，
+  禁止各模块自行拼上下文。
 
 ## 4. 代码与测试规范
 

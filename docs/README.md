@@ -14,6 +14,7 @@
 | 测试模块化规划（Phase A / B / C） | [TESTING_ROADMAP](TESTING_ROADMAP.md) |
 | 发布流程 | [RELEASING](RELEASING.md) |
 | 踩坑与开发经验 | [PITFALLS](PITFALLS.md) |
+| Rust 核心集成详细设计 | [DESIGN_RUST_CORE](DESIGN_RUST_CORE.md) |
 | 版本变更历史 | [CHANGELOG](../CHANGELOG.md) |
 | 开发路线图 / 待办 | [TODO](../TODO.md) |
 | 架构决策记录（ADR） | [decisions](decisions/) |
@@ -33,10 +34,12 @@
 - [RELEASING](RELEASING.md) —— 发版步骤。
 - [PITFALLS](PITFALLS.md) —— 踩坑与开发经验单一来源（交互 / 布局 / 滚动 /
   数据状态 / 窗口 / 验证方法论；持续补充）。
+- [DESIGN_RUST_CORE](DESIGN_RUST_CORE.md) —— Rust 核心集成详细设计
+  （方案 A：静态库 + C ABI、构建链、桥接、测试与失败模式）。
 
 ### 决策记录（已接受）
 
-- [decisions/README.md](decisions/README.md) —— ADR 索引（0001~0003）。
+- [decisions/README.md](decisions/README.md) —— ADR 索引（0001~0007）。
 
 ### 历史记录（归档，仅参考，不随现状改写）
 
