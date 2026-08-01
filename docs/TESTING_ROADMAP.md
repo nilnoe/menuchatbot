@@ -6,8 +6,8 @@
 
 本文档是测试代码模块化的分步规划。每阶段遵循「小步、行为不变、测试护航」
 铁律：完成一个阶段、跑绿一次，再进入下一阶段。日常测试约定（目录、命名、
-支持 API 手册）见 [docs/TESTING.md](TESTING.md)；关键决策记录见
-[docs/decisions/0003-test-modularization.md](decisions/0003-test-modularization.md)。
+支持 API 手册）见 [TESTING.md](TESTING.md)；关键决策记录见
+[decisions/0003-test-modularization.md](decisions/0003-test-modularization.md)。
 
 ---
 
@@ -18,7 +18,7 @@
 1. **质量门**（每阶段验收均含）：
    - `swift build` 无警告
    - `swift test` 全绿（重构不得降低测试数量）
-   - `swift format lint --recursive --strict Sources Tests` 零违规
+   - `swift-format lint --recursive --strict Sources Tests` 零违规
 2. **行为不变**：只搬位置、不改断言；拆分与模块化不动被测代码逻辑。
 3. **不引入新依赖**：模块化只用 SwiftPM 原生能力。
 4. **文档同步**：改动同步更新 TESTING.md、本文件、README、CHANGELOG、TODO。

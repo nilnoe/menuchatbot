@@ -1,15 +1,17 @@
 # 发布流程
 
+> 发布与版本管理相关文档索引见 [README.md](README.md)（文档地图）。
+
 当前为 Beta 阶段，发布步骤：
 
 1. **更新版本信息**
    - `scripts/make-app.sh` 中 Info.plist 的 `CFBundleShortVersionString` / `CFBundleVersion`
    - `CHANGELOG.md` 按 Keep a Changelog 风格记录本次变更
-   - 如需同步 README（功能表 / 测试数量）
+   - 同步 README（功能表 / 测试数量）与 docs/（含 TESTING.md 支持 API 手册）
 2. **质量门**
    - `swift build` 无警告
    - `swift test` 全绿
-   - `swift format lint --recursive --strict Sources Tests` 零违规
+   - `swift-format lint --recursive --strict Sources Tests` 零违规
 3. **打 tag 触发 CI 出包**
    ```bash
    git tag -a v0.2.1 -m "Beta 0.2.1"

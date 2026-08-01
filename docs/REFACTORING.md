@@ -1,5 +1,9 @@
 # DeepSeek Chat 重构路线图（TODO）
 
+> **状态：已完成并归档**（2026-07-31 合并至 main）。本文是历史过程记录，
+> 现行架构与测试约定以 [PROJECT_SPEC.md](../PROJECT_SPEC.md) /
+> [docs/TESTING.md](TESTING.md) 为准。
+
 > 分支：`refactor/architecture`（从 `main` 3c96aaa 切出）
 > 状态：**全部阶段完成**（2026-07-31，质量门三项全过）
 > 基线：重构前 `swift test` 140 个测试全部通过；完成后 **146** 个全部通过
@@ -11,7 +15,7 @@
 
 ## 0. 遵循的项目规范
 
-本计划必须满足 [PROJECT_SPEC.md](PROJECT_SPEC.md) 与
+本计划必须满足 [PROJECT_SPEC.md](../PROJECT_SPEC.md) 与
 [CONTRIBUTING.md](../CONTRIBUTING.md) 的全部约定：
 
 1. **复用优先**：不引入新依赖、不自造轮子；重构只动结构不动技术选型。

@@ -80,7 +80,7 @@
 
 ## 6. 质量门
 
-与 [CONTRIBUTING.md](CONTRIBUTING.md) 一致：
+与 [CONTRIBUTING.md](../CONTRIBUTING.md) 一致：
 
 - `swift build` 无警告
 - `swift test` 全绿（重构不得降低测试数量）
@@ -96,4 +96,4 @@
   触发前保持单 target，不为假想规模引入复杂度。
 
 完整的分阶段规划（Phase A 已完成、B / C 的步骤与触发条件）见
-[docs/TESTING_ROADMAP.md](TESTING_ROADMAP.md)。
+[TESTING_ROADMAP.md](TESTING_ROADMAP.md)。

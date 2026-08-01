@@ -1,7 +1,9 @@
 # 贡献指南
 
-感谢你愿意参与 MenuChatBot（DeepSeek Chat）的开发。请先读完
+感谢你愿意参与 DeepSeek Chat 的开发。请先读完
 [PROJECT_SPEC.md](PROJECT_SPEC.md)（工程规范）再动手。
+
+全部开发文档的入口见 [docs/README.md](docs/README.md)（文档地图）。
 
 ## 第一原则
 
@@ -15,7 +17,7 @@
 ```bash
 swift build        # 编译
 swift test         # 跑全部测试（含性能基线）
-swift format lint --recursive Sources Tests   # 代码规范检查
+swift-format lint --recursive --strict Sources Tests   # 代码规范检查（与 CI 一致）
 ./scripts/make-app.sh                          # 打包 .app
 ```
 
@@ -27,7 +29,7 @@ swift format lint --recursive Sources Tests   # 代码规范检查
 
 - [ ] `swift build` 无警告
 - [ ] `swift test` 全绿（新增逻辑必须带单测）
-- [ ] `swift format lint --recursive --strict Sources Tests` 零违规
+- [ ] `swift-format lint --recursive --strict Sources Tests` 零违规
 - [ ] 新功能优先复用开源库，并在 PR 描述说明选型
 - [ ] 破坏性改动（如存储 schema）走 GRDB 迁移，并同步更新 TODO / CHANGELOG
 

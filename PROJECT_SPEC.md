@@ -1,6 +1,6 @@
 # DeepSeek Chat 工程规范
 
-> 本文档是 MenuChatBot（DeepSeek Chat）的工程规范，所有代码与改动必须遵守。
+> 本文档是 DeepSeek Chat 的工程规范，所有代码与改动必须遵守。
 > 版本状态：Beta 0.3 · 纯 Swift / SwiftUI 原生 macOS 菜单栏应用。
 
 ---
@@ -100,9 +100,13 @@ Sources/DeepSeekChat/
 
 - Swift 命名遵循 Swift API Design Guidelines；public 符号必须有文档注释。
 - 新增逻辑必须配单测；纯函数（解析 / 序列化 / 状态机）优先做成可单测形态。
+- 测试代码按层组织，镜像 `Sources/` 分层；目录约定、命名规范与支持 API
+  手册见 [docs/TESTING.md](docs/TESTING.md)，模块化规划见
+  [docs/TESTING_ROADMAP.md](docs/TESTING_ROADMAP.md)。
 - 任何破坏性 schema 变更必须走 GRDB `DatabaseMigrator` 迁移，禁止直接改表删表。
 - 性能敏感路径（渲染、滚动、存储）在 PR 描述中说明复杂度，并尽量用 XCTMeasure 防回归。
-- 改动同步更新 TODO.md / CHANGELOG.md。
+- 改动同步更新 CHANGELOG.md / TODO.md 及受影响文档（README、docs/ 下指南）；
+  新增共享测试能力时登记 docs/TESTING.md 支持 API 手册。
 
 ## 5. 引入新依赖的流程
 
@@ -115,5 +119,7 @@ Sources/DeepSeekChat/
 
 - 版本：Beta → 1.0 前按 TODO 路线图推进；每次发布更新 CHANGELOG 与 README。
 - 构建：`./scripts/make-app.sh` 产出 `dist/DeepSeek Chat.app`。
-- 质量门：`swift build && swift test` 必须全绿。
-- 后续：GitHub Actions CI（`swift test` + release 构建）、swift-format/SwiftLint 接入。
+- 质量门：`swift build` 无警告、`swift test` 全绿、
+  `swift-format lint --recursive --strict Sources Tests` 零违规。
+- CI：GitHub Actions 已接入（lint / test / release 三 job，见
+  `.github/workflows/ci.yml`）；格式统一 swift-format（SwiftLint 未引入）。

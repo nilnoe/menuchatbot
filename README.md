@@ -1,4 +1,4 @@
-# MenuChatBot（DeepSeek Chat）
+# DeepSeek Chat（macOS 菜单栏 AI 聊天应用）
 
 > **AI 项目**：一个完全由 DeepSeek 大模型驱动的原生 macOS 菜单栏聊天应用。
 >
@@ -7,11 +7,14 @@
 
 点击菜单栏图标即可呼出聊天面板，随时问 AI、联网搜索、管理多个会话——像系统自带工具一样轻快。
 
+> 命名说明：应用名为 **DeepSeek Chat**（曾用名 MenuChatBot）；代码仓库沿用历史名
+> `menuchatbot`，目录名与本仓库一致为 `DeepSeekChat`。
+
 ---
 
 ## 它是什么？
 
-MenuChatBot 是一个常驻在 macOS 菜单栏的 AI 聊天应用：
+DeepSeek Chat 是一个常驻在 macOS 菜单栏的 AI 聊天应用：
 
 - 不占 Dock、不常驻后台窗口，需要时点击菜单栏图标呼出，点外部自动收起
 - 对话由 **DeepSeek AI 模型**（`deepseek-v4-flash` / `deepseek-v4-pro`）驱动，支持思考模式与联网搜索
@@ -89,9 +92,10 @@ swift test        # 运行 191 个单元测试（含性能基线）
 ## 项目结构
 
 ```
-menuchatbot/
+DeepSeekChat/
 ├── Package.swift              # SwiftPM 工程定义（含测试 target）
 ├── scripts/make-app.sh        # 一键构建脚本（编译 + 打包 .app）
+├── docs/                      # 文档（地图入口见 docs/README.md）
 ├── Sources/DeepSeekChat/
 │   ├── App/                   # 入口 + 装配（AppDelegate）、面板 /
 │   │                         #   状态栏图标 / 主菜单控制器
@@ -116,13 +120,19 @@ menuchatbot/
     └── Support/               # 共享 mock 与测试脚手架
 ```
 
-分层规则（Views → Streaming → Services / Persistence → Domain）与
-接口隔离约定见 [PROJECT_SPEC.md](PROJECT_SPEC.md) §3.1；重构过程与
-决策记录见 [docs/REFACTORING.md](docs/REFACTORING.md) 与
-[docs/decisions](docs/decisions/)；测试策略与测试支持 API 手册见
-[docs/TESTING.md](docs/TESTING.md)，测试模块化分阶段规划见
-[docs/TESTING_ROADMAP.md](docs/TESTING_ROADMAP.md)；macOS SwiftUI 交互踩坑
-记录见 [docs/PITFALLS.md](docs/PITFALLS.md)。
+## 文档地图
+
+| 想做什么 | 文档 |
+|---|---|
+| 参与开发前必读 | [CONTRIBUTING.md](CONTRIBUTING.md) |
+| 工程规范与架构约束 | [PROJECT_SPEC.md](PROJECT_SPEC.md) |
+| 测试约定与支持 API 手册 | [docs/TESTING.md](docs/TESTING.md) |
+| 测试模块化规划（A / B / C） | [docs/TESTING_ROADMAP.md](docs/TESTING_ROADMAP.md) |
+| 发布流程 | [docs/RELEASING.md](docs/RELEASING.md) |
+| macOS SwiftUI 踩坑经验 | [docs/PITFALLS.md](docs/PITFALLS.md) |
+| 架构决策记录（ADR） | [docs/decisions/](docs/decisions/) |
+
+全部文档索引与状态说明见 [docs/README.md](docs/README.md)。
 
 ## 数据与安全
 
@@ -143,9 +153,10 @@ menuchatbot/
 面板默认隐藏，点击图标呼出；若已呼出则点击收起。右键图标 → 「显示面板」也能呼出。
 
 **Q：侧栏的置顶 / 重命名按钮点了没反应？**
-已知问题（暂未解决）：会话行的快捷按钮在部分机器上点击无响应，已登记在
-[TODO.md](TODO.md) 顶部「已知未解决」与 CHANGELOG；可先用右键菜单完成
-置顶 / 重命名 / 删除。
+已修复（0.3.0）：根因是 `borderless` 按钮在滚动列表中不响应点击、以及嵌套列表
+跨组移动的过期行快照，已分别改回 `plain` 样式并拍平列表，经真实应用内事件注入
+验证通过（细节见 [docs/PITFALLS.md](docs/PITFALLS.md)）。如仍复现，请提 Issue
+并附 macOS 版本。
 
 **Q：应用是 AI 项目，和 DeepSeek 官方有什么关系？**
 本项目是社区开发的第三方客户端，使用 DeepSeek 开放 API，与 DeepSeek 官方无关联。
