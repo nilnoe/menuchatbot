@@ -65,6 +65,12 @@
   不再 touch 会话时间戳（写放大约 -12x），`commitMessage` 统一落库时间戳
   保证崩溃恢复语义；消息状态上限 200 条 LRU 逐出（当前会话/流式消息因
   渲染频繁而保持新鲜）。新增落库时序与 LRU 测试 3 个（测试 211 → 214）。
+- **接口地基（Tier 1 第二批，第一批）**：新增 `ContextBuilder` 统一上下文
+  预算（字符启发式 token 估算 + 尾部截断 + 最后一条消息保底），
+  `ChatStreamController` 历史改经 ContextBuilder 构建；新增
+  `IndexEventPublishing` / `IndexEvent` 契约，SessionStore 在
+  append / update / commit / delete / 导入时发布索引事件（流式中间写回
+  不发布，避免洪泛）。新增测试 8 个（测试 214 → 222）。
 
 ## [0.3.0] - 2026-08-01
 

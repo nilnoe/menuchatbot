@@ -19,6 +19,9 @@ final class ChatStreamController: ObservableObject {
     /// 一次，消除流式写放大；最终内容由 commitMessage 兜底。
     private var storageFlushTick = 0
 
+    /// 统一上下文预算：历史截断等由 ContextBuilder 负责（Tier 1 第二批）。
+    private let contextBuilder: ContextBuilder
+
     private var streamTask: Task<Void, Never>?
     private let sessionStore: SessionStoring
     private let settings: SettingsStore
@@ -28,12 +31,14 @@ final class ChatStreamController: ObservableObject {
     init(
         sessionStore: SessionStoring,
         settings: SettingsStore,
+        contextBuilder: ContextBuilder = ContextBuilder(),
         makeClient: @escaping @MainActor (String, String) -> DeepSeekClient = {
             DeepSeekClient(baseURL: $1, apiKey: $0)
         }
     ) {
         self.sessionStore = sessionStore
         self.settings = settings
+        self.contextBuilder = contextBuilder
         self.makeClient = makeClient
     }
 
@@ -78,7 +83,7 @@ final class ChatStreamController: ObservableObject {
         )
         sessionStore.appendMessage(sessionID: sessionID, assistantMessage)
         let assistantState = sessionStore.messageState(for: assistantMessage)
-        let history = sessionStore.history(for: sessionID)
+        let history = contextBuilder.buildHistory(sessionStore.history(for: sessionID))
         streamingSessionID = sessionID
         streamingState = assistantState
 

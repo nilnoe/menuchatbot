@@ -1,6 +1,6 @@
 import Foundation
 
-struct APIMessage: Codable {
+struct APIMessage: Codable, Equatable {
     var role: String
     var content: String
 }

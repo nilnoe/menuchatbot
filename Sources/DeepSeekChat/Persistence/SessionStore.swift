@@ -25,7 +25,15 @@ final class SessionStore: ObservableObject {
     /// 测试钩子：当前驻留的消息状态数（ACCEPTANCE T1-4a）。
     var messageStateCount: Int { messageStates.count }
 
+    /// 索引事件流（Tier 1 第二批）：IndexCoordinator 订阅，事件即契约。
+    let indexEvents: AsyncStream<IndexEvent>
+    private var indexEventContinuation: AsyncStream<IndexEvent>.Continuation?
+
     init(storageDirectory: URL? = nil) {
+        var continuation: AsyncStream<IndexEvent>.Continuation?
+        indexEvents = AsyncStream { continuation = $0 }
+        indexEventContinuation = continuation
+
         let dir = storageDirectory ?? SessionStore.defaultDirectory()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         directory = dir
@@ -273,6 +281,7 @@ final class SessionStore: ObservableObject {
                     .deleteAll(db)
                 try SessionRecord.deleteOne(db, key: id.uuidString)
             }
+            publish(.sessionDeleted(id))
         } catch {
             AppLog.storage.error("删除会话写库失败: \(error, privacy: .public)")
         }
@@ -311,6 +320,7 @@ final class SessionStore: ObservableObject {
                 try touchSession(
                     db, sessionID: sessionID, updatedAt: sessions[sessionIndex].updatedAt)
             }
+            publish(.messageDeleted(sessionID: sessionID, messageID: messageID))
         } catch {
             AppLog.storage.error("删除消息写库失败: \(error, privacy: .public)")
         }
@@ -553,6 +563,18 @@ final class SessionStore: ObservableObject {
         for session in imported.reversed() {
             sessions.insert(makeSummary(from: session), at: 0)
         }
+        for session in imported {
+            for (position, message) in session.messages.enumerated() {
+                publish(
+                    .messageUpserted(
+                        sessionID: session.id,
+                        messageID: message.id,
+                        position: position,
+                        contentHash: contentHash(of: message)
+                    )
+                )
+            }
+        }
         objectWillChange.send()
 
         return SessionImportResult(
@@ -571,9 +593,10 @@ final class SessionStore: ObservableObject {
             cached.append(message)
             messageCache[sessionID] = cached
         }
+        var position = 0
         do {
             try dbQueue.write { db in
-                let position =
+                position =
                     try Int.fetchOne(
                         db,
                         sql:
@@ -584,6 +607,14 @@ final class SessionStore: ObservableObject {
                 try record.insert(db)
                 try touchSession(db, sessionID: sessionID, updatedAt: sessions[index].updatedAt)
             }
+            publish(
+                .messageUpserted(
+                    sessionID: sessionID,
+                    messageID: message.id,
+                    position: position,
+                    contentHash: contentHash(of: message)
+                )
+            )
         } catch {
             AppLog.storage.error("追加消息写库失败: \(error, privacy: .public)")
         }
@@ -606,6 +637,14 @@ final class SessionStore: ObservableObject {
             sessionID: sessionID,
             position: messageIndex,
             updatedAt: sessions[sessionIndex].updatedAt
+        )
+        publish(
+            .messageUpserted(
+                sessionID: sessionID,
+                messageID: messageID,
+                position: messageIndex,
+                contentHash: contentHash(of: messages[messageIndex])
+            )
         )
         objectWillChange.send()
     }
@@ -672,6 +711,17 @@ final class SessionStore: ObservableObject {
                 try dbQueue.write { db in
                     try touchSession(db, sessionID: sessionID, updatedAt: updatedAt)
                 }
+                let messages = messages(for: sessionID)
+                if let messageIndex = messages.firstIndex(where: { $0.id == state.id }) {
+                    publish(
+                        .messageUpserted(
+                            sessionID: sessionID,
+                            messageID: state.id,
+                            position: messageIndex,
+                            contentHash: contentHash(of: messages[messageIndex])
+                        )
+                    )
+                }
             } catch {
                 AppLog.storage.error("提交会话时间戳写库失败: \(error, privacy: .public)")
             }
@@ -726,10 +776,19 @@ final class SessionStore: ObservableObject {
             createdAt: message.createdAt,
             position: position,
             tokenTotal: message.usage?.totalTokens ?? 0,
-            contentHash: ContentHash.fnv1a(
-                message.reasoning.map { message.content + "\u{0}" + $0 } ?? message.content),
+            contentHash: contentHash(of: message),
             indexVersion: 0
         )
+    }
+
+    /// 内容指纹（与索引事件 / 幂等共用同一公式）。
+    private func contentHash(of message: ChatMessage) -> String {
+        ContentHash.fnv1a(
+            message.reasoning.map { message.content + "\u{0}" + $0 } ?? message.content)
+    }
+
+    private func publish(_ event: IndexEvent) {
+        indexEventContinuation?.yield(event)
     }
 
     /// 把整个会话（含全部消息）写入数据库，供迁移与导入复用。
@@ -772,3 +831,5 @@ final class SessionStore: ObservableObject {
 // MARK: - MessageSynchronizing（流式写回契约）
 
 extension SessionStore: SessionStoring {}
+
+extension SessionStore: IndexEventPublishing {}

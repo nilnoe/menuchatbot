@@ -56,9 +56,10 @@
 
 **第二批｜接口地基**（ADR-0008 D3）
 
-- [ ] ContextBuilder：统一上下文预算（历史截断 + RAG 注入 + 工具结果记账），
-  禁止各模块自行拼上下文
-- [ ] IndexEventPublishing：SessionStore → 索引协调的事件发布协议
+- [x] ContextBuilder：统一上下文预算（历史截断已落地，保留尾部 + 最后一条
+  消息保底；RAG 注入 / 工具结果记账槽位预留）
+- [x] IndexEventPublishing：SessionStore → 索引协调的事件发布协议
+  （append / update / commit / delete / 导入发布，流式中间写回不发布）
 - [ ] ToolRegistry / ToolExecutor 协议：工具注册与执行契约（实现随 Tier 2）
 - [ ] 设置数据模型扩展：命名资料库列表（名称 / 路径 / 开关）、长时推演时长、
   工具开关（SettingsStore + 设置页）
