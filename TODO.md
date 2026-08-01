@@ -43,7 +43,8 @@
 
 - [ ] SessionStore 拆分 SessionSummary 与消息分页（侧栏不再持有消息正文，
   token 合计列化，消除每行 reduce；同时消除启动全量物化）
-- [ ] 消息表派生列：tokenTotal / contentHash / indexVersion（GRDB migration）
+- [x] 消息表派生列：tokenTotal / contentHash / indexVersion（GRDB migration；
+  indexVersion 的"索引成功后更新"随 Tier 3 索引器落地）
 - [ ] 流式存储写放大修复（存储降频 + 后台写队列）+ messageStates LRU 上限
 - [ ] 性能基线扩展：启动 10k 消息、流式存储吞吐、侧栏渲染不随消息数线性
   变慢（XCTMeasure）

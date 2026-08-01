@@ -2,6 +2,8 @@ import XCTest
 
 @testable import DeepSeekChat
 
+import GRDB
+
 final class MigrationTests: XCTestCase {
     private var tempDir: URL!
 
@@ -226,5 +228,82 @@ final class MigrationTests: XCTestCase {
     func testMigrateWrongSessionsTypeReturnsNil() throws {
         let json: [String: Any] = ["deepseek-chat.sessions.v1": "not-an-array"]
         XCTAssertNil(Migration.migrateSessions(from: try writeState(json)))
+    }
+
+    // MARK: - v4 派生列迁移（Tier 1-2，ACCEPTANCE T1-2a）
+
+    /// 旧库升级：v3 schema（含 usageJSON）→ v4 补齐派生列并按 usageJSON 回填 tokenTotal。
+    func testLegacyDatabaseWithoutDerivedColumnsUpgrades() throws {
+        let dbURL = tempDir.appendingPathComponent("sessions.sqlite")
+        var legacy = DatabaseMigrator()
+        legacy.registerMigration("v1") { db in
+            try db.create(table: "session") { t in
+                t.column("id", .text).primaryKey()
+                t.column("title", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+            try db.create(table: "message") { t in
+                t.column("id", .text).primaryKey()
+                t.column("sessionID", .text).notNull().references("session", onDelete: .cascade)
+                t.column("role", .text).notNull()
+                t.column("content", .text).notNull()
+                t.column("reasoning", .text)
+                t.column("sourcesJSON", .text)
+                t.column("isSearching", .boolean).notNull()
+                t.column("isError", .boolean).notNull()
+                t.column("createdAt", .datetime).notNull()
+                t.column("position", .integer).notNull()
+            }
+            try db.create(indexOn: "message", columns: ["sessionID", "position"])
+        }
+        legacy.registerMigration("v2") { db in
+            try db.alter(table: "message") { t in
+                t.add(column: "usageJSON", .text)
+            }
+        }
+        legacy.registerMigration("v3") { db in
+            try db.alter(table: "session") { t in
+                t.add(column: "isPinned", .boolean).notNull().defaults(to: false)
+            }
+        }
+        let queue = try DatabaseQueue(path: dbURL.path)
+        try legacy.migrate(queue)
+        try queue.write { db in
+            try db.execute(
+                sql:
+                    """
+                    INSERT INTO session (id, title, createdAt, updatedAt, isPinned)
+                    VALUES ('s1', '旧会话', '2026-01-01', '2026-01-02', 0)
+                    """
+            )
+            try db.execute(
+                sql:
+                    """
+                    INSERT INTO message
+                    (id, sessionID, role, content, reasoning, sourcesJSON, usageJSON,
+                     isSearching, isError, createdAt, position)
+                    VALUES
+                    ('m1', 's1', 'assistant', '旧回答', NULL, NULL,
+                     '{"promptTokens":30,"cachedTokens":12,"completionTokens":8,"totalTokens":38}',
+                     0, 0, '2026-01-02', 0)
+                    """
+            )
+        }
+
+        // SessionStore 启动时跑 v1→v4 全量迁移（v1~v3 已记录，实际只补 v4）。
+        _ = SessionStore(storageDirectory: tempDir)
+
+        let after = try DatabaseQueue(path: dbURL.path)
+        let derived = try after.read { db -> (Int, String, Int) in
+            (
+                try Int.fetchOne(db, sql: "SELECT tokenTotal FROM message") ?? -1,
+                try String.fetchOne(db, sql: "SELECT contentHash FROM message") ?? "",
+                try Int.fetchOne(db, sql: "SELECT indexVersion FROM message") ?? -1
+            )
+        }
+        XCTAssertEqual(derived.0, 38)
+        XCTAssertEqual(derived.1, "")
+        XCTAssertEqual(derived.2, 0)
     }
 }

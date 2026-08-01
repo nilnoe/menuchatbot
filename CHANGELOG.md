@@ -42,6 +42,13 @@
   完整性、安全边界、评审清单）；TODO 各 Tier 挂接对应验收章节，CONTRIBUTING
   增加非 UI 改动检查项。
 
+### 数据层（Tier 1 第一批，进行中）
+
+- **消息表派生列（v4 迁移）**：message 表新增 `tokenTotal` / `contentHash` /
+  `indexVersion`；旧库升级按 usageJSON 回填 tokenTotal；新增稳定内容指纹
+  `ContentHash`（FNV-1a 64，跨启动稳定，替代随机播种的 `Hasher`）；
+  新增 hash 确定性 / 派生列持久化 / 旧库升级迁移测试。测试 191 → 198。
+
 ## [0.3.0] - 2026-08-01
 
 ### 新增

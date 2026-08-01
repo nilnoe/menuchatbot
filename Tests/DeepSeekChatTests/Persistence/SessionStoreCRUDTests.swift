@@ -67,6 +67,36 @@ final class SessionStoreCRUDTests: XCTestCase {
         XCTAssertNil(reloaded.session(id: session.id)?.messages.last?.usage)
     }
 
+    // MARK: - 派生列（Tier 1-2，ACCEPTANCE T1-2a / T1-2c）
+
+    func testTokenTotalAndContentHashPersist() throws {
+        let store = harness.makeStore()
+        let session = store.createSession(title: "派生列")
+        store.appendMessage(
+            sessionID: session.id,
+            ChatMessage(
+                role: .assistant,
+                content: "内容",
+                usage: TokenUsage(
+                    promptTokens: 30, cachedTokens: 12, completionTokens: 8, totalTokens: 38)
+            )
+        )
+
+        // 直接查库断言派生列（消息 API 暂不暴露 tokenTotal）。
+        let queue = try DatabaseQueue(
+            path: harness.tempDir.appendingPathComponent("sessions.sqlite").path)
+        let derived = try queue.read { db -> (Int, String, Int) in
+            (
+                try Int.fetchOne(db, sql: "SELECT tokenTotal FROM message") ?? -1,
+                try String.fetchOne(db, sql: "SELECT contentHash FROM message") ?? "",
+                try Int.fetchOne(db, sql: "SELECT indexVersion FROM message") ?? -1
+            )
+        }
+        XCTAssertEqual(derived.0, 38)
+        XCTAssertEqual(derived.1, ContentHash.fnv1a("内容"))
+        XCTAssertEqual(derived.2, 0)
+    }
+
     // MARK: - 置顶
 
     func testSetPinnedPersistsAcrossReload() {

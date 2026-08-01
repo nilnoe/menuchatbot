@@ -89,6 +89,36 @@ final class SessionStore: ObservableObject {
                 }
             }
         }
+        // v4：message 表补充派生列 tokenTotal / contentHash / indexVersion
+        // （供侧栏聚合与索引幂等；旧库升级时按 usageJSON 回填 tokenTotal）。
+        migrator.registerMigration("v4") { db in
+            let messageColumns = try db.columns(in: "message").map(\.name)
+            if !messageColumns.contains("tokenTotal") {
+                try db.alter(table: "message") { t in
+                    t.add(column: "tokenTotal", .integer).notNull().defaults(to: 0)
+                }
+                try db.execute(
+                    sql:
+                        """
+                        UPDATE message
+                        SET tokenTotal = COALESCE(
+                            CAST(json_extract(usageJSON, '$.totalTokens') AS INTEGER), 0
+                        )
+                        WHERE usageJSON IS NOT NULL
+                        """
+                )
+            }
+            if !messageColumns.contains("contentHash") {
+                try db.alter(table: "message") { t in
+                    t.add(column: "contentHash", .text).notNull().defaults(to: "")
+                }
+            }
+            if !messageColumns.contains("indexVersion") {
+                try db.alter(table: "message") { t in
+                    t.add(column: "indexVersion", .integer).notNull().defaults(to: 0)
+                }
+            }
+        }
         return migrator
     }
 
@@ -458,7 +488,11 @@ final class SessionStore: ObservableObject {
             isSearching: message.isSearching,
             isError: message.isError,
             createdAt: message.createdAt,
-            position: position
+            position: position,
+            tokenTotal: message.usage?.totalTokens ?? 0,
+            contentHash: ContentHash.fnv1a(
+                message.reasoning.map { message.content + "\u{0}" + $0 } ?? message.content),
+            indexVersion: 0
         )
     }
 

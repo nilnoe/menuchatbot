@@ -29,6 +29,12 @@ struct MessageRecord: Codable, FetchableRecord, MutablePersistableRecord, TableR
     var isError: Bool
     var createdAt: Date
     var position: Int
+    /// 派生列（v4）：usage.totalTokens 的冗余，供侧栏聚合（Tier 1-2）。
+    var tokenTotal: Int
+    /// 派生列（v4）：内容指纹，供索引幂等与变更检测（Tier 1-2）。
+    var contentHash: String
+    /// 派生列（v4）：索引版本，索引成功后更新（Tier 1-2）。
+    var indexVersion: Int
 
     var chatMessage: ChatMessage {
         ChatMessage(
