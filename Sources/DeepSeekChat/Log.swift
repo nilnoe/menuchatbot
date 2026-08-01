@@ -8,4 +8,7 @@ enum AppLog {
     /// 数据库与存储相关（SQLite / GRDB / 迁移）。
     static let storage = Logger(
         subsystem: AppConfiguration.bundleIdentifier, category: "storage")
+    /// 审计模块相关（事件写入 / 保留 / 降级）。
+    static let audit = Logger(
+        subsystem: AppConfiguration.bundleIdentifier, category: "audit")
 }

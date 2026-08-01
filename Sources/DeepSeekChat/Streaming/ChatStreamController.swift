@@ -25,6 +25,10 @@ final class ChatStreamController: ObservableObject {
     private let toolRegistry: ToolRegistry?
     /// 工具调用轮次上限（ADR-0006 D3）。
     private let maxToolRounds: Int
+    /// 审计记录器（ADR-0009 B/C 域：轮次上限、工具执行）。
+    private let audit: AuditLogging
+    /// 本次发送的关联 ID（AU-9：贯穿工具轮次与流式）。
+    private var currentRequestID = ""
 
     private var streamTask: Task<Void, Never>?
     private let sessionStore: SessionStoring
@@ -38,6 +42,7 @@ final class ChatStreamController: ObservableObject {
         contextBuilder: ContextBuilder = ContextBuilder(),
         toolRegistry: ToolRegistry? = nil,
         maxToolRounds: Int = AppConfiguration.defaultMaxToolRounds,
+        audit: AuditLogging = NullAuditLogger(),
         makeClient: @escaping @MainActor (String, String) -> DeepSeekClient = {
             DeepSeekClient(baseURL: $1, apiKey: $0)
         }
@@ -47,6 +52,7 @@ final class ChatStreamController: ObservableObject {
         self.contextBuilder = contextBuilder
         self.toolRegistry = toolRegistry
         self.maxToolRounds = maxToolRounds
+        self.audit = audit
         self.makeClient = makeClient
     }
 
@@ -61,6 +67,7 @@ final class ChatStreamController: ObservableObject {
         if preset == nil {
             draft = ""
         }
+        currentRequestID = UUID().uuidString
 
         var targetID = selectedSessionID
         if targetID.flatMap({ sessionStore.summary(id: $0) }) == nil {
@@ -120,6 +127,7 @@ final class ChatStreamController: ObservableObject {
         guard streamingSessionID == nil, let session = sessionStore.session(id: sessionID) else {
             return
         }
+        currentRequestID = UUID().uuidString
         if let last = session.messages.last, last.role == .assistant, last.isError {
             sessionStore.removeMessage(sessionID: sessionID, messageID: last.id)
         }
@@ -144,6 +152,7 @@ final class ChatStreamController: ObservableObject {
         canSearch: Bool,
         firstState: MessageState
     ) async -> MessageState {
+        let requestID = currentRequestID.isEmpty ? nil : currentRequestID
         let enabledTools = enabledToolDefinitions()
         var currentHistory = history
         var currentState = firstState
@@ -190,6 +199,15 @@ final class ChatStreamController: ObservableObject {
             round += 1
             if round > maxToolRounds {
                 // 超过轮次上限：不再执行工具，提示模型直接作答（T2-3b）。
+                audit.record(
+                    domain: .permission,
+                    severity: .warning,
+                    category: AuditCategory.roundLimitEnforced,
+                    message: "工具调用轮次已达上限，强制收敛",
+                    sessionID: sessionID,
+                    requestID: requestID,
+                    metadata: ["round": String(round), "max": String(maxToolRounds)]
+                )
                 if limitMessageSent { break }
                 let note = "工具调用轮次已达上限（\(maxToolRounds)），请基于已有信息直接给出最终答案。"
                 appendToolMessage(
@@ -352,7 +370,30 @@ final class ChatStreamController: ObservableObject {
 
     /// 执行一次工具调用，返回写入会话历史的结果摘要（T2-3c 透明展示）。
     private func executeTool(_ call: APIToolCall, sessionID: UUID) async -> String {
+        let requestID = currentRequestID.isEmpty ? nil : currentRequestID
+        let argsSummary = AuditRedactor.summary(for: call.function.arguments)
+        let toolMetadata = [
+            "tool": call.function.name,
+            "args": argsSummary,
+        ]
+        audit.record(
+            domain: .tool,
+            category: AuditCategory.executionStart,
+            message: "工具执行开始：\(call.function.name)",
+            sessionID: sessionID,
+            requestID: requestID,
+            metadata: toolMetadata
+        )
         guard let executor = toolRegistry?.executor(for: call.function.name) else {
+            audit.record(
+                domain: .tool,
+                severity: .warning,
+                category: AuditCategory.notRegistered,
+                message: "工具未注册：\(call.function.name)",
+                sessionID: sessionID,
+                requestID: requestID,
+                metadata: toolMetadata
+            )
             return "错误：工具 \(call.function.name) 未注册"
         }
         let request = ToolExecutionRequest(
@@ -362,13 +403,59 @@ final class ChatStreamController: ObservableObject {
         )
         do {
             let result = try await executor.execute(request)
+            recordToolEnd(
+                success: result.success,
+                call: call,
+                sessionID: sessionID,
+                requestID: requestID,
+                result: result
+            )
             if result.success {
                 return "结果：\(result.output)"
             }
             return "执行失败：\(result.errorMessage ?? "未知错误")"
         } catch {
+            recordToolEnd(
+                success: false,
+                call: call,
+                sessionID: sessionID,
+                requestID: requestID,
+                error: error.localizedDescription
+            )
             return "执行异常：\(error.localizedDescription)"
         }
+    }
+
+    /// 工具执行结束事件（成功 / 失败共用，AU-9 start/end 成对）。
+    private func recordToolEnd(
+        success: Bool,
+        call: APIToolCall,
+        sessionID: UUID,
+        requestID: String?,
+        result: ToolExecutionResult? = nil,
+        error: String? = nil
+    ) {
+        var metadata: [String: String] = [
+            "tool": call.function.name,
+            "args": AuditRedactor.summary(for: call.function.arguments),
+            "success": String(success),
+        ]
+        if let result {
+            metadata["duration"] = String(format: "%.3f", result.duration)
+            metadata["output"] = AuditRedactor.truncated(result.output)
+        }
+        if let error {
+            metadata["error"] = AuditRedactor.truncated(error)
+        }
+        audit.record(
+            domain: .tool,
+            severity: success ? .info : .warning,
+            category: success ? AuditCategory.executionSuccess : AuditCategory.executionFailed,
+            message: success ? "工具执行成功：\(call.function.name)" : "工具执行失败：\(call.function.name)",
+            sessionID: sessionID,
+            requestID: requestID,
+            metadata: metadata
+        )
     }
 
     /// 追加一条 tool 角色消息（历史 + 会话），保证下一轮 API 请求可回传。

@@ -10,6 +10,12 @@ enum AppConfiguration {
     /// Application Support 下的应用目录名。
     static let appSupportDirectoryName = bundleIdentifier
 
+    /// Application Support 下应用数据目录（会话库 / 审计库共用）。
+    static var appSupportDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent(appSupportDirectoryName, isDirectory: true)
+    }
+
     /// 主面板窗口 frame autosave 名称。
     static let panelAutosaveName = "mainPanelV2"
 

@@ -3,7 +3,15 @@ import Foundation
 
 final class SettingsStore: ObservableObject {
     @Published var model: String {
-        didSet { defaults.set(model, forKey: AppConfiguration.SettingsKey.model) }
+        didSet {
+            defaults.set(model, forKey: AppConfiguration.SettingsKey.model)
+            audit.record(
+                domain: .config,
+                category: AuditCategory.modelChanged,
+                message: "模型切换",
+                metadata: ["model": model]
+            )
+        }
     }
     @Published var thinking: Bool {
         didSet { defaults.set(thinking, forKey: AppConfiguration.SettingsKey.thinking) }
@@ -52,6 +60,12 @@ final class SettingsStore: ObservableObject {
                 customProviderEnabled,
                 forKey: AppConfiguration.SettingsKey.customProviderEnabled
             )
+            audit.record(
+                domain: .config,
+                category: AuditCategory.providerEnabledChanged,
+                message: customProviderEnabled ? "自定义供应商已启用" : "自定义供应商已停用",
+                metadata: ["enabled": String(customProviderEnabled)]
+            )
             // 关闭供应商后，若当前选中的是自定义模型，回退到内置默认模型，
             // 避免拿自定义模型 ID 请求官方接口。
             if !customProviderEnabled, !ModelCatalog.builtin.contains(where: { $0.id == model }) {
@@ -92,6 +106,7 @@ final class SettingsStore: ObservableObject {
             if let data = try? JSONEncoder().encode(corpora) {
                 defaults.set(data, forKey: AppConfiguration.SettingsKey.corpora)
             }
+            auditCorpusChanges(from: oldValue, to: corpora)
         }
     }
     /// 长时推演时长档位（Tier 5 使用；默认 5 分钟）。
@@ -100,6 +115,12 @@ final class SettingsStore: ObservableObject {
             defaults.set(
                 deliberationDuration.rawValue,
                 forKey: AppConfiguration.SettingsKey.deliberationDuration
+            )
+            audit.record(
+                domain: .config,
+                category: AuditCategory.deliberationDurationChanged,
+                message: "长时推演时长变更",
+                metadata: ["minutes": String(deliberationDuration.minutes)]
             )
         }
     }
@@ -111,6 +132,7 @@ final class SettingsStore: ObservableObject {
                 toolCalculatorEnabled,
                 forKey: AppConfiguration.SettingsKey.toolCalculatorEnabled
             )
+            recordToolToggle("calculator", enabled: toolCalculatorEnabled)
         }
     }
     @Published var toolReadFileEnabled: Bool {
@@ -119,6 +141,7 @@ final class SettingsStore: ObservableObject {
                 toolReadFileEnabled,
                 forKey: AppConfiguration.SettingsKey.toolReadFileEnabled
             )
+            recordToolToggle("readFile", enabled: toolReadFileEnabled)
         }
     }
     @Published var toolPythonEnabled: Bool {
@@ -127,6 +150,7 @@ final class SettingsStore: ObservableObject {
                 toolPythonEnabled,
                 forKey: AppConfiguration.SettingsKey.toolPythonEnabled
             )
+            recordToolToggle("python", enabled: toolPythonEnabled)
         }
     }
 
@@ -134,15 +158,19 @@ final class SettingsStore: ObservableObject {
     private let keychain: KeychainStoring
     private let keychainSaveDelay: Duration
     private var keychainSaveTask: Task<Void, Never>?
+    /// 审计记录器（ADR-0009 A 域：配置与身份）。
+    private let audit: AuditLogging
 
     init(
         defaults: UserDefaults = .standard,
         keychain: KeychainStoring = KeychainStore.shared,
-        keychainSaveDelay: Duration = .milliseconds(600)
+        keychainSaveDelay: Duration = .milliseconds(600),
+        audit: AuditLogging = NullAuditLogger()
     ) {
         self.defaults = defaults
         self.keychain = keychain
         self.keychainSaveDelay = keychainSaveDelay
+        self.audit = audit
         let savedModel =
             defaults.string(forKey: AppConfiguration.SettingsKey.model) ?? "deepseek-v4-flash"
         model =
@@ -238,8 +266,66 @@ final class SettingsStore: ObservableObject {
     private func persistKey(value: String) {
         if value.isEmpty {
             keychain.delete(account: AppConfiguration.keychainAPIKeyAccount)
+            audit.record(
+                domain: .config,
+                category: AuditCategory.apiKeyDeleted,
+                message: "API Key 已从钥匙串删除"
+            )
         } else {
             keychain.write(account: AppConfiguration.keychainAPIKeyAccount, value: value)
+            audit.record(
+                domain: .config,
+                category: AuditCategory.apiKeyWritten,
+                message: "API Key 已写入钥匙串"
+            )
+        }
+    }
+
+    private func recordToolToggle(_ tool: String, enabled: Bool) {
+        audit.record(
+            domain: .config,
+            category: AuditCategory.toolToggleChanged,
+            message: "工具开关变更",
+            metadata: ["tool": tool, "enabled": String(enabled)]
+        )
+    }
+
+    /// 资料库增删 / 启用变更审计（A 域 + permission.corpusAuthorized）。
+    private func auditCorpusChanges(from old: [LibraryCorpus], to new: [LibraryCorpus]) {
+        for corpus in new where !old.contains(where: { $0.id == corpus.id }) {
+            audit.record(
+                domain: .config,
+                category: AuditCategory.corpusAdded,
+                message: "资料库已添加：\(corpus.name)",
+                metadata: ["path": AuditRedactor.summary(for: corpus.path)]
+            )
+            if corpus.bookmarkData != nil {
+                audit.record(
+                    domain: .permission,
+                    category: AuditCategory.corpusAuthorized,
+                    message: "资料库目录授权已建立",
+                    metadata: ["path": AuditRedactor.summary(for: corpus.path)]
+                )
+            }
+        }
+        for corpus in old where !new.contains(where: { $0.id == corpus.id }) {
+            audit.record(
+                domain: .config,
+                category: AuditCategory.corpusRemoved,
+                message: "资料库已移除：\(corpus.name)",
+                metadata: ["path": AuditRedactor.summary(for: corpus.path)]
+            )
+        }
+        for oldCorpus in old {
+            guard let newCorpus = new.first(where: { $0.id == oldCorpus.id }),
+                oldCorpus.isEnabled != newCorpus.isEnabled
+            else { continue }
+            audit.record(
+                domain: .config,
+                category: AuditCategory.corpusToggled,
+                message: "资料库开关变更：\(newCorpus.name)",
+                metadata: ["enabled": String(newCorpus.isEnabled)]
+            )
         }
     }
 }

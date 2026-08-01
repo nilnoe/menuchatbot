@@ -18,6 +18,7 @@ final class SettingsViewRenderTests: XCTestCase {
         try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
         let sessionStore = SessionStore(storageDirectory: tempDir)
+        let auditCenter = AuditCenter(directory: tempDir)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 640),
@@ -30,6 +31,7 @@ final class SettingsViewRenderTests: XCTestCase {
                 SettingsView(onClose: {})
                     .environmentObject(settings)
                     .environmentObject(sessionStore)
+                    .environmentObject(auditCenter)
             )
         )
         hosting.frame = NSRect(x: 0, y: 0, width: 460, height: 640)

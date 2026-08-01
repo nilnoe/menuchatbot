@@ -29,6 +29,26 @@
 - **深度思考 v1（T2-4）**：`reasoning_effort=max` 档位（UI 已有 Max，
   补充 Chat Completions / Responses 请求构造测试）。
 
+### 功能（Tier A：审计模块 P1）
+
+- **审计地基**：新增 `Sources/DeepSeekChat/Audit/`（ADR-0009）——
+  `AuditEvent` / `AuditDomain` / 事件目录 70 种（`AuditCategory`）、字段级
+  脱敏（`AuditRedactor`，密钥 / 全文 / 长路径截断 + SHA-256）、追加式
+  `AuditStore`（独立 `audit.sqlite`，自有迁移链，无 update / delete API，
+  90 天 / 50MB 保留策略）、`AuditLogger`（批量异步落 sink，故障不阻塞业务）、
+  `AuditCenter` 组合根（审计库损坏自动降级内存库）。设置页新增「安全审计」
+  查看器（级别 / 域过滤 + 导出，导出不含密钥与全文）。
+- **四域接入**：A 配置（SettingsStore：模型 / 工具开关 / 供应商 / 资料库
+  增删 / 推演时长 / API Key 生命周期，密钥只记事件不记值）；B 权限
+  （PathScope 通过 / 拒绝事件、bookmark 授权与 stale、注册表白名单自检、
+  轮次上限强制收敛）；C 工具（executeTool 每次调用 start / end 成对 +
+  requestID 贯穿 + 耗时 / 结果摘要）；D 存储（SessionStore：迁移 / DB 降级
+  / 导出导入 / 会话删除，审计记录独立保留）。
+- **测试与门禁**：新增 43 个审计测试（共 315 全绿，覆盖 AU-1~AU-21 中
+  P1 可验条目）；`check-scale.sh` 阈值按 ADR-0009 D8 校准（6000 → 7500，
+  原因记录于脚本头）；SessionStore 拆出 `SessionStore+Audit` /
+  `SessionStore+Migrations` 满足单文件 ≤ 800 行。
+
 ### 重构
 
 - **测试代码模块化**：`Tests/` 目录镜像 `Sources` 分层（App / Domain /

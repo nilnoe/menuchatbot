@@ -20,12 +20,14 @@ final class SettingsStoreHarness {
     /// 新建 SettingsStore；默认零防抖、使用本脚手架的内存 Keychain。
     func makeStore(
         keychain: KeychainStoring? = nil,
-        saveDelay: Duration = .zero
+        saveDelay: Duration = .zero,
+        audit: AuditLogging? = nil
     ) -> SettingsStore {
         SettingsStore(
             defaults: defaults,
             keychain: keychain ?? mockKeychain,
-            keychainSaveDelay: saveDelay
+            keychainSaveDelay: saveDelay,
+            audit: audit ?? NullAuditLogger()
         )
     }
 

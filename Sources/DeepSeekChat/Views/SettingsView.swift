@@ -3,11 +3,14 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var sessionStore: SessionStore
+    @EnvironmentObject var auditCenter: AuditCenter
     var onClose: () -> Void
 
     @FocusState private var keyFocused: Bool
     @State private var showKey = false
     @State private var keyCheckState: KeyCheckState = .idle
+    @State private var auditSeverityFilter: AuditSeverity?
+    @State private var auditDomainFilter: AuditDomain?
 
     private enum KeyCheckState: Equatable {
         case idle
@@ -43,6 +46,7 @@ struct SettingsView: View {
                     aiToolsSection
                     windowSection
                     dataSection
+                    auditSection
                 }
                 .formStyle(.grouped)
                 // 表单限宽 420 居中；外层不再固定 420pt——
@@ -255,6 +259,104 @@ struct SettingsView: View {
             Text("导出为 JSON 备份文件，可在本应用或其他设备恢复；导入会追加新会话，不会覆盖现有数据")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - 安全审计（ADR-0009，P1）
+
+    private var auditSection: some View {
+        Section("安全审计") {
+            HStack {
+                Label(
+                    "事件总数 \(auditCenter.totalCount)",
+                    systemImage: "doc.text.magnifyingglass"
+                )
+                .font(.caption)
+                Spacer()
+                Button("导出…") {
+                    SessionFileTransfer.exportAudit(auditCenter)
+                }
+                .controlSize(.small)
+            }
+
+            HStack(spacing: 12) {
+                Picker("级别", selection: $auditSeverityFilter) {
+                    Text("全部").tag(AuditSeverity?.none)
+                    ForEach(AuditSeverity.allCases, id: \.self) { severity in
+                        Text(severity.rawValue).tag(AuditSeverity?.some(severity))
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+
+                Picker("域", selection: $auditDomainFilter) {
+                    Text("全部域").tag(AuditDomain?.none)
+                    ForEach(AuditDomain.allCases, id: \.self) { domain in
+                        Text(domain.rawValue).tag(AuditDomain?.some(domain))
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+            }
+
+            if filteredAuditEvents.isEmpty {
+                Text("暂无审计事件")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(filteredAuditEvents.prefix(30), id: \.eventID) { event in
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: auditIcon(for: event.severity))
+                            .foregroundStyle(auditColor(for: event.severity))
+                            .frame(width: 14)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(event.category)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Text(event.message)
+                                .font(.caption)
+                                .lineLimit(2)
+                                .textSelection(.enabled)
+                        }
+                    }
+                }
+            }
+
+            Text("审计记录仅保存在本机（audit.sqlite），导出不含 API Key 与消息全文")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .onAppear {
+            auditCenter.refreshStats()
+        }
+    }
+
+    /// 按级别 / 域过滤后的最近事件（纯展示过滤）。
+    private var filteredAuditEvents: [AuditEvent] {
+        auditCenter.recentEvents.filter { event in
+            if let auditSeverityFilter, event.severity != auditSeverityFilter {
+                return false
+            }
+            if let auditDomainFilter, event.domain != auditDomainFilter {
+                return false
+            }
+            return true
+        }
+    }
+
+    private func auditIcon(for severity: AuditSeverity) -> String {
+        switch severity {
+        case .critical, .error: return "xmark.circle.fill"
+        case .warning: return "exclamationmark.triangle.fill"
+        case .info: return "info.circle"
+        }
+    }
+
+    private func auditColor(for severity: AuditSeverity) -> Color {
+        switch severity {
+        case .critical, .error: return .red
+        case .warning: return .orange
+        case .info: return .secondary
         }
     }
 

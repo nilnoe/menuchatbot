@@ -56,6 +56,22 @@ enum SessionFileTransfer {
         }
     }
 
+    /// 导出审计记录（设置页「安全审计」；脱敏由 AuditRedactor 保证，AU-8）。
+    static func exportAudit(_ auditCenter: AuditCenter) {
+        let panel = makeSavePanel(name: "audit-export-\(dateStamp()).json")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let data = try auditCenter.exportJSON()
+            try data.write(to: url, options: .atomic)
+            showNotice(
+                title: "导出成功",
+                message: "已导出 \(auditCenter.totalCount) 条审计记录（不含密钥与消息全文）"
+            )
+        } catch {
+            showNotice(title: "导出失败", message: error.localizedDescription, isError: true)
+        }
+    }
+
     // MARK: - 私有辅助
 
     private static func makeSavePanel(name: String) -> NSSavePanel {

@@ -56,6 +56,7 @@
 | `httpBody(of:)` | 读取请求体（兼容 `httpBody` / `httpBodyStream` 两种形态） |
 | `SessionStoreHarness` | 每个用例独立临时目录；`makeStore()` 即「跨实例重载」、`writeFile(_:_:)` 构造旧版文件、`cleanup()` 清理 |
 | `SettingsStoreHarness` | 隔离的 UserDefaults 套件 + `mockKeychain`；`makeStore(keychain:saveDelay:)`、`cleanup()` |
+| `AuditRecorderSink` | 线程安全的事件记录 sink（兼作 `AuditLogging`）；`events(domain:category:)` 过滤、`clear()` 分段清空；配合 `makeAuditLogger(sinks:)` 与 `flushSync()` 做断言（AU-9 等） |
 
 约定：
 

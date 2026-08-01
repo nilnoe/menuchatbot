@@ -1,6 +1,6 @@
 # ADR-0009：审计模块（运行时记录 + 验证纪律 + 报告）
 
-- 状态：已接受（2026-08-01，方案定稿，待实现）
+- 状态：已接受（2026-08-01，方案定稿；P1 已实现）
 - 关联：[ACCEPTANCE §11](../ACCEPTANCE.md)、TODO「Tier A｜审计模块」、
   ADR-0006（工具审计承诺 D3.4）、ADR-0004（FFI 边界）
 
@@ -128,11 +128,18 @@ struct AuditEvent {
 ### D8：规模与工程约束
 
 - 预计新增 Swift 900~1300 行；P1 落地时按项目惯例**先测基线再校准**，
-  上调 `check-scale.sh` 的 SOURCE_LINE_LIMIT（建议 7000）并记录原因；
+  上调 `check-scale.sh` 的 SOURCE_LINE_LIMIT / TEST_LINE_LIMIT 至 7500
+  （校准记录：P1 前基线已为 6126 / 6319，超出旧上限 6000；原因与阈值
+  一并写入脚本头，2026-08-01）；
 - 零新依赖：复用 GRDB / os_log / Security（PROJECT_SPEC §1）；
 - 依赖方向：Audit 只依赖 Foundation + GRDB，任何上层不得反向依赖；
   `check-deps.sh` 追加断言；
 - 验收：ACCEPTANCE §11 AU-1~AU-21，每条先红后绿、测试命名可回溯编号。
+
+> **P1 落地记录（2026-08-01）**：审计地基与 A/B/C/D 四域接入完成，
+> 43 个新测试（共 315 全绿）；设置页查看器可用；P2（FFI 计数器 /
+> panic hook / fuzz / cargo audit / ASan）、P3（Tier 4 门禁审计 /
+> 哈希链）、P4（网络 / 推演域 / 保留自动执行）待后续 Tier 落地。
 
 ## 后果
 

@@ -75,6 +75,9 @@ Views → Streaming → Services / Persistence → Domain
 Sources/DeepSeekChat/
 ├─ App/          入口（@main）、AppDelegate 装配、PanelController、
 │                StatusItemController、MainMenuBuilder
+├─ Audit/        审计模块（ADR-0009）：事件模型 / 脱敏 / AuditStore
+│                （独立 audit.sqlite）/ Logger / Center，只依赖
+│                Foundation + GRDB + os_log
 ├─ Domain/       领域模型：ChatMessage / ChatSession / Role / Source、
 │                导入导出 DTO、Effort 枚举、CustomModel（自定义供应商模型）
 ├─ Services/     网络层（DeepSeekClient / SSEParser / APIMessage）、

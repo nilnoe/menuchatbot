@@ -7,8 +7,9 @@ final class SessionStore: ObservableObject {
     /// `objectWillChange.send()`，流式写回（syncMessage）不会触发整树重算。
     private(set) var sessions: [SessionSummary] = []
 
-    private let directory: URL
-    private let dbQueue: DatabaseQueue
+    /// internal：SessionStore+Audit / SessionStore+Migrations 扩展需要访问。
+    let directory: URL
+    let dbQueue: DatabaseQueue
     /// 惰性消息缓存：仅已打开过的会话持有消息正文，上限 LRU 淘汰
     /// （Tier 1-1，消除启动全量物化）。
     private var messageCache: [UUID: [ChatMessage]] = [:]
@@ -29,7 +30,12 @@ final class SessionStore: ObservableObject {
     let indexEvents: AsyncStream<IndexEvent>
     private var indexEventContinuation: AsyncStream<IndexEvent>.Continuation?
 
-    init(storageDirectory: URL? = nil) {
+    /// 审计记录器（ADR-0009 D 域：迁移 / 降级 / 导入导出 / 会话删除）。
+    /// 挂点实现见 SessionStore+Audit.swift。
+    let audit: AuditLogging
+
+    init(storageDirectory: URL? = nil, audit: AuditLogging = NullAuditLogger()) {
+        self.audit = audit
         var continuation: AsyncStream<IndexEvent>.Continuation?
         indexEvents = AsyncStream { continuation = $0 }
         indexEventContinuation = continuation
@@ -49,21 +55,24 @@ final class SessionStore: ObservableObject {
             // 数据库打不开时退回内存库，保证应用可用（数据不落盘）。
             AppLog.storage.error("打开会话数据库失败，改用内存库: \(error, privacy: .public)")
             dbQueue = try! DatabaseQueue(configuration: configuration)
+            auditDbFallbackToMemory(reason: error.localizedDescription)
         }
         do {
             try Self.migrator.migrate(dbQueue)
+            let applied = try dbQueue.read { db in
+                try Self.migrator.appliedIdentifiers(db).sorted()
+            }
+            auditMigrationApplied(migrations: applied)
         } catch {
             AppLog.storage.error("初始化数据库表失败: \(error, privacy: .public)")
+            auditMigrationFailed(reason: error.localizedDescription)
         }
         migrateLegacyDataIfNeeded()
         load()
     }
 
     private static func defaultDirectory() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
-            .first!
-        return base.appendingPathComponent(
-            AppConfiguration.appSupportDirectoryName, isDirectory: true)
+        AppConfiguration.appSupportDirectory
     }
 
     // MARK: - 载入 / 旧数据迁移
@@ -124,37 +133,6 @@ final class SessionStore: ObservableObject {
         }
     }
 
-    /// 把旧版 sessions.json / state.json 一次性迁入 SQLite（仅当数据库为空时执行）。
-    private func migrateLegacyDataIfNeeded() {
-        do {
-            let count = try dbQueue.read { db in try SessionRecord.fetchCount(db) }
-            guard count == 0 else { return }
-
-            let jsonURL = directory.appendingPathComponent("sessions.json")
-            let legacySessions: [ChatSession]?
-            if let data = try? Data(contentsOf: jsonURL),
-                let decoded = try? JSONDecoder().decode([ChatSession].self, from: data)
-            {
-                legacySessions = decoded
-            } else if let migrated = Migration.migrateSessions(
-                from: directory.appendingPathComponent("state.json"))
-            {
-                legacySessions = migrated
-            } else {
-                legacySessions = nil
-            }
-
-            guard let legacySessions else { return }
-            try dbQueue.write { db in
-                for session in legacySessions {
-                    try insertSession(session, into: db)
-                }
-            }
-        } catch {
-            AppLog.storage.error("迁移旧会话数据失败: \(error, privacy: .public)")
-        }
-    }
-
     // MARK: - 会话操作
 
     @discardableResult
@@ -206,6 +184,7 @@ final class SessionStore: ObservableObject {
                 try SessionRecord.deleteOne(db, key: id.uuidString)
             }
             publish(.sessionDeleted(id))
+            auditSessionDeleted(id: id)
         } catch {
             AppLog.storage.error("删除会话写库失败: \(error, privacy: .public)")
         }
@@ -397,15 +376,23 @@ final class SessionStore: ObservableObject {
 
     /// 导出全部会话为 JSON 备份数据。
     func exportJSON() throws -> Data {
-        let export = SessionExport(sessions: try allSessionsFromDB())
-        return try JSONEncoder().encode(export)
+        do {
+            let sessions = try allSessionsFromDB()
+            let data = try JSONEncoder().encode(SessionExport(sessions: sessions))
+            auditExportFinished(sessionCount: sessions.count, bytes: data.count)
+            return data
+        } catch {
+            auditExportFailed()
+            throw error
+        }
     }
 
     /// 导出单个会话为 JSON 备份数据。
     func exportSessionJSON(id: UUID) throws -> Data? {
         guard let session = try sessionFromDB(id: id) else { return nil }
-        let export = SessionExport(sessions: [session])
-        return try JSONEncoder().encode(export)
+        let data = try JSONEncoder().encode(SessionExport(sessions: [session]))
+        auditExportSessionFinished(sessionID: id, bytes: data.count)
+        return data
     }
 
     /// 导出直接读库（不依赖内存缓存），保证与持久化内容一致。
@@ -460,16 +447,20 @@ final class SessionStore: ObservableObject {
     /// 安全策略：导入的会话与消息一律重新生成 UUID，避免与现有数据冲突；
     /// 解码或校验失败则整体回滚，不写入任何部分数据。
     func importJSON(_ data: Data) throws -> SessionImportResult {
+        auditImportStarted(bytes: data.count)
         let export: SessionExport
         do {
             export = try JSONDecoder().decode(SessionExport.self, from: data)
         } catch {
+            auditImportFailed(reason: "解码失败")
             throw SessionImportError.decodingFailed(error.localizedDescription)
         }
         guard export.format == SessionExport.formatID else {
+            auditImportFailed(reason: "格式标识不符")
             throw SessionImportError.unsupportedFormat
         }
         guard export.version == SessionExport.currentVersion else {
+            auditImportFailed(reason: "版本不受支持")
             throw SessionImportError.unsupportedVersion(export.version)
         }
 
@@ -521,6 +512,10 @@ final class SessionStore: ObservableObject {
         }
         objectWillChange.send()
 
+        auditImportFinished(
+            sessions: imported.count,
+            messages: imported.reduce(0) { $0 + $1.messages.count }
+        )
         return SessionImportResult(
             importedSessions: imported.count,
             importedMessages: imported.reduce(0) { $0 + $1.messages.count }
@@ -741,7 +736,8 @@ final class SessionStore: ObservableObject {
     }
 
     /// 把整个会话（含全部消息）写入数据库，供迁移与导入复用。
-    private func insertSession(_ session: ChatSession, into db: Database) throws {
+    /// internal：SessionStore+Migrations 扩展需要访问。
+    func insertSession(_ session: ChatSession, into db: Database) throws {
         var sessionRecord = SessionRecord(
             id: session.id.uuidString,
             title: session.title,

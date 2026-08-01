@@ -33,6 +33,19 @@ final class InProcessToolRegistry: ToolRegistry {
             executor: executor
         )
     }
+
+    /// 自检（ADR-0006 D3.1 / ADR-0009 B 域）：返回疑似「写 / 删」语义的工具名，
+    /// 空数组 = 通过。写 / 删工具以「不存在」为硬约束，自检使约束可审计。
+    func suspiciousToolNames() -> [String] {
+        let forbidden = [
+            "write", "delete", "remove", "edit", "create", "move", "rename", "truncate",
+            "append", "overwrite",
+        ]
+        return availableTools.map(\.name).filter { name in
+            let lower = name.lowercased()
+            return forbidden.contains { lower.contains($0) }
+        }
+    }
 }
 
 enum ToolRegistryError: LocalizedError, Equatable {

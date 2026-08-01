@@ -28,8 +28,8 @@ final class SessionStoreHarness {
     }
 
     /// 新建一个指向同一临时目录的 store（等价于「跨实例重载」）。
-    func makeStore() -> SessionStore {
-        SessionStore(storageDirectory: tempDir)
+    func makeStore(audit: AuditLogging? = nil) -> SessionStore {
+        SessionStore(storageDirectory: tempDir, audit: audit ?? NullAuditLogger())
     }
 
     /// 向临时目录写入文件（用于构造旧版 state.json / sessions.json 等）。

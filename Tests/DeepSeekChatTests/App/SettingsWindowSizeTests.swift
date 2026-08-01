@@ -24,6 +24,7 @@ final class SettingsWindowSizeTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
         let store = SessionStore(storageDirectory: tempDir)
         let controller = ChatStreamController(sessionStore: store, settings: settings)
+        let auditCenter = AuditCenter(directory: tempDir)
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
@@ -37,6 +38,7 @@ final class SettingsWindowSizeTests: XCTestCase {
                     .environmentObject(store)
                     .environmentObject(settings)
                     .environmentObject(controller)
+                    .environmentObject(auditCenter)
             )
         )
         panel.contentViewController = hosting
@@ -50,6 +52,7 @@ final class SettingsWindowSizeTests: XCTestCase {
             SettingsView(onClose: {})
                 .environmentObject(settings)
                 .environmentObject(store)
+                .environmentObject(auditCenter)
         )
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         let after = panel.frame.size
