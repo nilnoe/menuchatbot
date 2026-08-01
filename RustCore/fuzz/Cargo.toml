@@ -7,6 +7,9 @@ publish = false
 # 独立 workspace：避免与父包 RustCore 的嵌套包歧义（cargo-fuzz 约定）。
 [workspace]
 
+[package.metadata]
+cargo-fuzz = true
+
 [dependencies]
 libfuzzer-sys = "0.4"
 

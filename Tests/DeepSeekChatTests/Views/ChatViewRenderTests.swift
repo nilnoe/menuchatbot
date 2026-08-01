@@ -309,12 +309,22 @@ final class ChatViewRenderTests: XCTestCase {
             sessionID: session.id,
             ChatMessage(role: .assistant, content: "你好！有什么可以帮你？")
         )
-        settle()
+        settleUntilInk()
         try snapshot(named: "short-pinned-top")
 
         let (top, bottom) = messageAreaInkByHalf()
         print("SHORT-INK top=\(top) bottom=\(bottom)")
         XCTAssertGreaterThan(top, bottom, "短会话应顶置：首条气泡应在消息区上半部分")
+    }
+
+    /// 轮询等待消息区出现墨水（CI 慢环境防抖）：先渲染一帧再检查，
+    /// 阈值避开空状态提示的少量墨水（~0.0005），最多 ~2s。
+    private func settleUntilInk() {
+        for _ in 0..<16 {
+            settle()
+            let ratio = messageAreaInkRatio()
+            if ratio > 0.001 { return }
+        }
     }
 
     /// 空状态（无消息）在消息区视口内垂直居中：

@@ -40,7 +40,7 @@ jobs:
       - name: Audit dependencies (cargo audit)
         uses: actions-rust-lang/audit@v1
         with:
-          args: --manifest-path RustCore/Cargo.toml
+          args: --file RustCore/Cargo.lock
 
   fuzz:
     name: Rust Fuzz (cron, AU-16)

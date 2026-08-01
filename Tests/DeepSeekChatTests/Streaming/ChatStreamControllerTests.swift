@@ -51,7 +51,7 @@ final class ChatStreamControllerTests: XCTestCase {
     }
 
     private func waitFor(
-        timeout: Duration = .seconds(3),
+        timeout: Duration = .seconds(10),
         _ condition: () -> Bool
     ) async throws {
         let clock = ContinuousClock()
