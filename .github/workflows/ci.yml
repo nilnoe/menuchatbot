@@ -18,6 +18,14 @@ jobs:
           brew install swift-format
           swift-format lint --recursive --strict Sources Tests
 
+  scale:
+    name: Scale Check
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run scale check
+        run: ./scripts/check-scale.sh
+
   test:
     name: Build & Test
     runs-on: macos-14
@@ -30,7 +38,7 @@ jobs:
 
   release:
     name: Release Build
-    needs: [lint, test]
+    needs: [lint, scale, test]
     # 仅打 tag（v*）时构建可分发的 .app
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: macos-14

@@ -120,6 +120,7 @@ Sources/DeepSeekChat/
 - 版本：Beta → 1.0 前按 TODO 路线图推进；每次发布更新 CHANGELOG 与 README。
 - 构建：`./scripts/make-app.sh` 产出 `dist/DeepSeek Chat.app`。
 - 质量门：`swift build` 无警告、`swift test` 全绿、
-  `swift-format lint --recursive --strict Sources Tests` 零违规。
+  `swift-format lint --recursive --strict Sources Tests` 零违规、
+  `./scripts/check-scale.sh` 通过（规模与单文件大小上限，阈值见脚本头部）。
 - CI：GitHub Actions 已接入（lint / test / release 三 job，见
   `.github/workflows/ci.yml`）；格式统一 swift-format（SwiftLint 未引入）。

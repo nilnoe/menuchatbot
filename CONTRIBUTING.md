@@ -18,6 +18,7 @@
 swift build        # 编译
 swift test         # 跑全部测试（含性能基线）
 swift-format lint --recursive --strict Sources Tests   # 代码规范检查（与 CI 一致）
+./scripts/check-scale.sh         # 规模检查（防膨胀，与 CI 一致）
 ./scripts/make-app.sh                          # 打包 .app
 ```
 
@@ -30,6 +31,7 @@ swift-format lint --recursive --strict Sources Tests   # 代码规范检查（�
 - [ ] `swift build` 无警告
 - [ ] `swift test` 全绿（新增逻辑必须带单测）
 - [ ] `swift-format lint --recursive --strict Sources Tests` 零违规
+- [ ] `./scripts/check-scale.sh` 通过（源码 / 测试总量与单文件大小上限）
 - [ ] 新功能优先复用开源库，并在 PR 描述说明选型
 - [ ] 破坏性改动（如存储 schema）走 GRDB 迁移，并同步更新 TODO / CHANGELOG
 
