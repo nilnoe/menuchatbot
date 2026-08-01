@@ -1,0 +1,22 @@
+[package]
+name = "rustcore"
+version = "0.1.0"
+edition = "2021"
+description = "DeepSeek Chat Rust core: minimal C ABI (index + calculator)"
+license = "MIT"
+
+[lib]
+name = "rustcore"
+# staticlib：并入主二进制，签名 / 公证 / Gatekeeper 自动覆盖（ADR-0004 方案 A）。
+# rlib：仅供 cargo test 链接测试目标，不进分发产物。
+crate-type = ["staticlib", "rlib"]
+
+[profile.release]
+# FFI 层已把可控错误转错误码；panic 一律 abort，杜绝跨 FFI unwind。
+panic = "abort"
+strip = true
+lto = true
+codegen-units = 1
+
+[profile.dev]
+panic = "unwind"

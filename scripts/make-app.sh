@@ -3,6 +3,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# 先构建 Rust 核心静态库（release universal；无 cargo 时自动降级 stub 库）
+./scripts/build-rust-core.sh
+
 swift build -c release
 
 APP="dist/DeepSeek Chat.app"

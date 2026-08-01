@@ -18,6 +18,21 @@ jobs:
           brew install swift-format
           swift-format lint --recursive --strict Sources Tests
 
+  rust:
+    name: Rust Core Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Format check
+        run: cargo fmt --check --manifest-path RustCore/Cargo.toml
+      - name: Clippy
+        run: cargo clippy --manifest-path RustCore/Cargo.toml --all-targets -- -D warnings
+      - name: Rust tests
+        run: cargo test --manifest-path RustCore/Cargo.toml --release
+
   scale:
     name: Scale Check
     runs-on: macos-14
@@ -31,8 +46,24 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - name: Build Rust core (debug)
+        run: MODE=debug ./scripts/build-rust-core.sh
       - name: Build
         run: swift build
+      - name: Test
+        run: swift test
+
+  test-degraded:
+    name: Test Without Rust Toolchain
+    # 无 cargo 环境：stub 库降级 + FFI 测试 XCTSkip（T2-1d）
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build stub Rust core
+        run: MODE=debug ./scripts/build-rust-core.sh
       - name: Test
         run: swift test
 
@@ -44,6 +75,9 @@ jobs:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
       - name: Package .app
         run: ./scripts/make-app.sh
       - name: Upload .app artifact
