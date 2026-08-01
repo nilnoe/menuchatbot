@@ -35,6 +35,8 @@ swift-format lint --recursive --strict Sources Tests   # 代码规范检查（�
 - [ ] 新功能优先复用开源库，并在 PR 描述说明选型
 - [ ] 破坏性改动（如存储 schema）走 GRDB 迁移，并同步更新 TODO（历史条目
   进 TODO_HISTORY）/ CHANGELOG
+- [ ] 非 UI 改动按 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) 逐条满足验收
+  （测试 + 基线 + 数据校验 + 评审清单）
 
 ## 分支与提交
 

@@ -37,6 +37,10 @@
   **降级为低优先级归档**；[TODO.md](TODO.md) 保留现行规划（优先级备忘 +
   Rust 核心与 AI 能力路线 + 历史 backlog 索引），README / 文档地图 /
   ADR-0002 引用同步更新。
+- **非 UI 验收标准（纯文档）**：新增 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)
+  定义可测量 / 可复现 / 可自动执行的验收框架（行为等价、性能阈值、数据
+  完整性、安全边界、评审清单）；TODO 各 Tier 挂接对应验收章节，CONTRIBUTING
+  增加非 UI 改动检查项。
 
 ## [0.3.0] - 2026-08-01
 

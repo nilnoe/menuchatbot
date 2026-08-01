@@ -60,7 +60,8 @@
   规范化 / symlink 防逃逸的路径包含检查（TCC 行为按目标 macOS 实测）
 
 **验收标准**（ADR-0008 D5）：行为不变（swift test ≥191 全绿）；新增性能
-基线；依赖方向单向；每批独立提交、可回滚。
+基线；依赖方向单向；每批独立提交、可回滚。逐条可测量验收标准见
+[docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) §4。
 
 ### Tier 2｜Rust 骨架与工具链（中低难度，打通即闭环）
 
@@ -75,6 +76,8 @@
   工具随 v4-pro 开放跟进）
 - [ ] 深度思考 v1：reasoning_effort=max 档位 UI（纯 API 参数过渡方案）
 
+**验收**：见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) §5。
+
 ### Tier 3｜资料库 RAG（中难度）
 
 - [ ] library_index：根目录扫描 / 分块（500~800 token 带重叠）/ 增量
@@ -85,6 +88,8 @@
 - [ ] 索引版本化 / rebuild（进度 + 取消）/ 一致性校验
 - [ ] 命名资料库 UI：增删改、启用开关、单库重新索引
 
+**验收**：见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) §6。
+
 ### Tier 4｜只读文件与脚本沙箱（中高难度，默认关闭）
 
 - [ ] T1 read_file：根目录内只读 + 扩展名白名单 + 大小 / 行数上限 + 按段截断
@@ -92,6 +97,8 @@
   输出 / 内存上限 + 环境清空；默认关闭 + 全局开关
 - [ ] 工具审计：每次调用（名称 / 参数 / 结果摘要）写入会话并在 UI 展示
 - [ ] （可选）FSEvents 增量监听资料库变更
+
+**验收**：见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) §7。
 
 ### Tier 5｜长时推演模式（高难度，最后做）
 
@@ -103,6 +110,8 @@
 - [ ] 断点续跑：流式中断后保留已完成推演内容
 - [ ] 远期：外部 MCP server 暴露（需评估进程约束）、多库混合检索、
   HNSW 升级、深度模式锁定 pro
+
+**验收**：见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) §8。
 
 ---
 

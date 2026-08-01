@@ -12,6 +12,7 @@
 | 工程规范 / 架构约束 / 依赖规则 | [PROJECT_SPEC](../PROJECT_SPEC.md) |
 | 测试怎么组织、支持 API 手册 | [TESTING](TESTING.md) |
 | 测试模块化规划（Phase A / B / C） | [TESTING_ROADMAP](TESTING_ROADMAP.md) |
+| 非 UI 改动的验收标准 | [ACCEPTANCE](ACCEPTANCE.md) |
 | 发布流程 | [RELEASING](RELEASING.md) |
 | 踩坑与开发经验 | [PITFALLS](PITFALLS.md) |
 | Rust 核心集成详细设计 | [DESIGN_RUST_CORE](DESIGN_RUST_CORE.md) |
@@ -32,6 +33,8 @@
 - [PROJECT_SPEC](../PROJECT_SPEC.md) —— 工程原则、架构约束、规范。
 - [TESTING](TESTING.md) —— 测试目录约定、命名规范、支持 API 手册。
 - [TESTING_ROADMAP](TESTING_ROADMAP.md) —— 测试模块化分阶段规划与触发条件。
+- [ACCEPTANCE](ACCEPTANCE.md) —— 非 UI 改动的验收框架：逐条可测量标准、
+  性能阈值、评审清单（数据层 / 索引 / 工具 / 推演）。
 - [RELEASING](RELEASING.md) —— 发版步骤。
 - [PITFALLS](PITFALLS.md) —— 踩坑与开发经验单一来源（交互 / 布局 / 滚动 /
   数据状态 / 窗口 / 验证方法论；持续补充）。
