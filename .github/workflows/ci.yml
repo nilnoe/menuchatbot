@@ -115,6 +115,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
+          # llvm-tools-preview：提供与编译器同版本 LLVM 的 llvm-nm，
+          # release（LTO+strip）对象的 ABI 校验依赖它（Apple nm 读不了）。
+          components: llvm-tools-preview
       - name: Package .app
         run: ./scripts/make-app.sh
       - name: Upload .app artifact

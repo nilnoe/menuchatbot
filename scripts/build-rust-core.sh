@@ -39,6 +39,17 @@ log() { printf '[rustcore] %s\n' "$*"; }
 # 系统 nm 可能读不了新版 Rust（LLVM 22）的对象文件属性（Xcode 26 实测
 # "Unknown attribute kind"）；优先 llvm-nm，其次系统 nm。
 find_nm() {
+  # 优先 Rust 工具链自带的 llvm-nm（llvm-tools-preview 组件）：与编译器
+  # 同版本 LLVM，能读 LTO+strip 的 release 对象；Apple 系统 nm 对
+  # LLVM 22 对象会报 "Unknown attribute kind" 而读不到符号。
+  local rust_nm
+  if command -v rustc >/dev/null 2>&1; then
+    rust_nm="$(rustc --print sysroot 2>/dev/null)/lib/rustlib/$(rustc -vV 2>/dev/null | sed -n 's/^host: //p')/bin/llvm-nm"
+    if [ -x "$rust_nm" ]; then
+      echo "$rust_nm"
+      return
+    fi
+  fi
   if command -v llvm-nm >/dev/null 2>&1; then
     echo "llvm-nm"
   elif [ -x /opt/homebrew/opt/llvm/bin/llvm-nm ]; then

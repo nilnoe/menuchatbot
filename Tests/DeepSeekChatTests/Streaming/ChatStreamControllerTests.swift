@@ -512,8 +512,11 @@ final class ChatStreamControllerTests: XCTestCase {
         // 等第一个工具调用开始执行后停止。
         try await waitFor { executor.callCount > 0 }
         controller.stop()
-        // 等待 in-flight 工具执行真正收尾（stop 会立即清 streamingSessionID）。
-        try await waitFor { executor.completedCount >= 1 }
+        // 等待 in-flight 工具执行收尾并把结果落库（stop 会立即清
+        // streamingSessionID，但落库在其后异步完成，慢机需轮询到落库为止）。
+        try await waitFor {
+            store.session(id: session.id)?.messages.contains { $0.role == .tool } == true
+        }
         try await waitFor { controller.streamingSessionID == nil }
 
         XCTAssertEqual(executor.callCount, 1, "stop 后不应继续执行第二个工具")
