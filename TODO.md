@@ -44,12 +44,13 @@
 - [x] SessionStore 拆分 SessionSummary（侧栏不再持有消息正文；token 合计
   来自派生列 SQL 聚合，消除每行 reduce；启动不再全量物化消息，改为惰性
   加载 + LRU 缓存）
-- [ ] 消息分页：ChatView 尾部 N 条 + 上翻增量加载（Tier 1-1e）
+- [x] 消息分页：ChatView 尾部 200 条 + 上翻增量加载（Tier 1-1e，
+  store 层分页 API + 渲染接线）
 - [x] 消息表派生列：tokenTotal / contentHash / indexVersion（GRDB migration；
   indexVersion 的"索引成功后更新"随 Tier 3 索引器落地）
 - [ ] 流式存储写放大修复（存储降频 + 后台写队列）+ messageStates LRU 上限
-- [ ] 性能基线扩展：启动 10k 消息、流式存储吞吐、侧栏渲染不随消息数线性
-  变慢（XCTMeasure）
+- [x] 性能基线扩展：启动 10k 消息、流式存储吞吐、侧栏派生计算
+  （XCTMeasure，DataFoundationBaselineTests）
 
 **第二批｜接口地基**（ADR-0008 D3）
 

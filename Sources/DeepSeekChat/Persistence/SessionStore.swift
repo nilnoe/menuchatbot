@@ -359,6 +359,45 @@ final class SessionStore: ObservableObject {
         return messages
     }
 
+    /// 取会话尾部（最新）`limit` 条消息，供聊天区首次渲染（分页，Tier 1-1e）。
+    func messagesTail(for id: UUID, limit: Int) -> [ChatMessage] {
+        let records =
+            (try? dbQueue.read { db in
+                try MessageRecord
+                    .filter(Column("sessionID") == id.uuidString)
+                    .order(Column("position").desc, Column("rowid").desc)
+                    .limit(limit)
+                    .fetchAll(db)
+            }) ?? []
+        return records.reversed().map(\.chatMessage)
+    }
+
+    /// 取比 `cursor` 更旧（position 更小）的 `limit` 条消息，供上翻增量加载。
+    func messagesBefore(_ cursor: ChatMessage, sessionID: UUID, limit: Int) -> [ChatMessage] {
+        guard
+            let cursorPosition =
+                (try? dbQueue.read { db in
+                    try Int.fetchOne(
+                        db,
+                        sql: "SELECT position FROM message WHERE id = ?",
+                        arguments: [cursor.id.uuidString]
+                    )
+                })
+        else { return [] }
+        let records =
+            (try? dbQueue.read { db in
+                try MessageRecord
+                    .filter(
+                        Column("sessionID") == sessionID.uuidString
+                            && Column("position") < cursorPosition
+                    )
+                    .order(Column("position").desc, Column("rowid").desc)
+                    .limit(limit)
+                    .fetchAll(db)
+            }) ?? []
+        return records.reversed().map(\.chatMessage)
+    }
+
     private func touchCache(_ id: UUID) {
         messageCacheOrder.removeAll { $0 == id }
         messageCacheOrder.append(id)

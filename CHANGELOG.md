@@ -53,6 +53,13 @@
   消息正文按需 `messages(for:)` 惰性加载 + 3 会话 LRU 缓存，启动不再
   全量物化；侧栏行改用 summary（消除每行 reduce）；导入导出直读数据库；
   `SessionStoring` 协议新增 summaries 契约。新增 summary 行为测试 7 个。
+- **消息分页（Tier 1-1e）**：新增 `messagesTail(for:limit:)` /
+  `messagesBefore(_:sessionID:limit:)` 分页 API；ChatView 首次只渲染尾部
+  200 条，上翻到分页边界自动加载更旧一页（倒置列表 oldest 物化触发）。
+  新增分页测试 5 个（测试 203 → 208）。
+- **数据地基性能基线**：新增 `DataFoundationBaselineTests`——启动加载
+  1 万消息、侧栏派生计算（200 会话）、流式存储吞吐（XCTMeasure），
+  阈值按 ACCEPTANCE §9 先测后校。
 
 ## [0.3.0] - 2026-08-01
 

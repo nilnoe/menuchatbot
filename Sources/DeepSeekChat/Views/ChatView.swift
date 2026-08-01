@@ -39,14 +39,26 @@ struct ChatView: View {
 
     private static let bottomTolerance: CGFloat = 40
     private static let streamScrollInterval: TimeInterval = 1.0 / 12.0
+    /// 消息分页大小（Tier 1-1e：首次只渲染尾部，上翻增量加载）。
+    private static let pageSize = 200
 
-    private var session: ChatSession? {
-        selectedID.flatMap { sessionStore.session(id: $0) }
+    private var summary: SessionSummary? {
+        selectedID.flatMap { sessionStore.summary(id: $0) }
+    }
+
+    /// 当前会话已加载的消息（尾部 + 已上翻的旧页，升序）。
+    @State private var messages: [ChatMessage] = []
+    @State private var loadedSessionID: UUID?
+    @State private var isLoadingOlder = false
+
+    private var canLoadOlder: Bool {
+        guard let summary else { return false }
+        return messages.count < summary.messageCount
     }
 
     private var streamingMessageID: UUID? {
         guard let state = controller.streamingState,
-            controller.streamingSessionID == session?.id
+            controller.streamingSessionID == selectedID
         else { return nil }
         return state.id
     }
@@ -54,7 +66,7 @@ struct ChatView: View {
     /// 流式分片发布器：只观察当前正在流式的那条消息，收到分片仅刷新该行。
     private var streamingTick: AnyPublisher<Void, Never> {
         guard let state = controller.streamingState,
-            controller.streamingSessionID == session?.id
+            controller.streamingSessionID == selectedID
         else {
             return Empty().eraseToAnyPublisher()
         }
@@ -75,6 +87,9 @@ struct ChatView: View {
             messagesArea
             composer
         }
+        .onReceive(sessionStore.objectWillChange) { _ in
+            syncMessagesIfNeeded()
+        }
     }
 
     // MARK: - 头部
@@ -87,11 +102,11 @@ struct ChatView: View {
             .buttonStyle(.borderless)
             .help("显示 / 隐藏会话列表")
 
-            Text(session?.title.isEmpty == false ? session!.title : "新对话")
+            Text(summary?.title.isEmpty == false ? summary!.title : "新对话")
                 .font(.headline)
                 .lineLimit(1)
             Spacer()
-            Text("\(session?.messages.count ?? 0) 条")
+            Text("\(summary?.messageCount ?? 0) 条")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -130,7 +145,7 @@ struct ChatView: View {
                     }
                     .frame(height: 0)
 
-                    if let session, !session.messages.isEmpty {
+                    if !messages.isEmpty {
                         // 倒置聊天列表（聊天类应用的业界标准做法）：
                         // 消息按倒序渲染，容器与每行各旋转 180°（双重旋转，文本与
                         // 选区恢复正向）。新消息出现在视觉底部，贴底时只需滚动到
@@ -138,20 +153,32 @@ struct ChatView: View {
                         // “LazyVStack 程序化滚动到未物化区域 → 空白”的已知缺陷，
                         // 同时保持 LazyVStack 懒加载（不引入 VStack 全量布局的卡顿）。
                         LazyVStack(spacing: 10) {
-                            ForEach(session.messages.reversed()) { message in
+                            ForEach(messages.reversed()) { message in
                                 let canRetry =
                                     message.isError
-                                    && message.id == session.messages.last?.id
+                                    && message.id == messages.last?.id
                                 MessageView(
                                     state: sessionStore.messageState(for: message),
                                     isStreaming: message.id == streamingMessageID,
                                     modelLabel: settings.modelInfo(for: settings.model).shortName,
                                     modelInfo: settings.modelInfo(for: settings.model),
                                     columnWidth: columnWidth,
-                                    onRetry: canRetry
-                                        ? { controller.retryLastExchange(in: session.id) } : nil
+                                    onRetry:
+                                        canRetry
+                                        ? {
+                                            if let sessionID = selectedID {
+                                                controller.retryLastExchange(in: sessionID)
+                                            }
+                                        } : nil
                                 )
                                 .rotationEffect(.degrees(180))
+                                .onAppear {
+                                    // 倒置列表里最旧的已加载消息位于视觉顶部；
+                                    // 它物化即代表用户上翻到当前分页边界，加载更旧的页。
+                                    if message.id == messages.first?.id {
+                                        loadOlderIfNeeded()
+                                    }
+                                }
                             }
                         }
                         .padding(.vertical, 10)
@@ -193,19 +220,21 @@ struct ChatView: View {
                 }
                 .onAppear {
                     viewportHeight = viewportH
+                    syncMessagesIfNeeded()
                     scrollToBottom(proxy)
                 }
                 .onChange(of: selectedID) { _, _ in
+                    syncMessagesIfNeeded()
                     stickToBottom = true
                     scrollToBottom(proxy)
                 }
-                .onChange(of: session?.messages.count) { _, _ in
+                .onChange(of: messages.count) { _, _ in
                     if stickToBottom {
                         scrollToBottom(proxy)
                     }
                 }
                 .onChange(of: streamingMessageID) { _, newValue in
-                    guard controller.streamingSessionID == session?.id else { return }
+                    guard controller.streamingSessionID == selectedID else { return }
                     if newValue != nil {
                         stickToBottom = true
                         scrollToBottom(proxy)
@@ -263,7 +292,7 @@ struct ChatView: View {
     ]
 
     private func scrollToBottom(_ proxy: ScrollViewProxy) {
-        guard let newest = session?.messages.last else { return }
+        guard let newest = messages.last else { return }
         let targetID = newest.id
         // 倒置布局下，最新一条消息位于视觉底部；贴底时它就在视口旁，
         // 必然已物化，滚动可靠且不会落到空白区域。
@@ -275,11 +304,40 @@ struct ChatView: View {
     /// 流式期间的即时滚动：仅贴底时执行，节流到约 12 次/秒，不使用动画。
     private func handleStreamingScroll(_ proxy: ScrollViewProxy) {
         guard stickToBottom else { return }
-        guard let newest = session?.messages.last else { return }
+        guard let newest = messages.last else { return }
         let now = Date()
         guard now.timeIntervalSince(lastStreamScroll) >= Self.streamScrollInterval else { return }
         lastStreamScroll = now
         proxy.scrollTo(newest.id, anchor: .bottom)
+    }
+
+    /// 按选中会话同步分页数据：切换会话加载尾部；会话内消息数变化时刷新尾部。
+    private func syncMessagesIfNeeded() {
+        guard let selectedID else {
+            messages = []
+            loadedSessionID = nil
+            return
+        }
+        guard loadedSessionID == selectedID else {
+            loadedSessionID = selectedID
+            messages = sessionStore.messagesTail(for: selectedID, limit: Self.pageSize)
+            return
+        }
+        if let summary, summary.messageCount != messages.count {
+            messages = sessionStore.messagesTail(for: selectedID, limit: Self.pageSize)
+        }
+    }
+
+    /// 上翻到分页边界时加载更旧的一页（前置拼接，保持升序）。
+    private func loadOlderIfNeeded() {
+        guard canLoadOlder, !isLoadingOlder, let selectedID, let oldest = messages.first else {
+            return
+        }
+        isLoadingOlder = true
+        let older = sessionStore.messagesBefore(oldest, sessionID: selectedID, limit: Self.pageSize)
+        isLoadingOlder = false
+        guard !older.isEmpty else { return }
+        messages = older + messages
     }
 
     /// 下一轮 RunLoop 重新评估“是否贴底”。
