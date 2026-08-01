@@ -7,12 +7,16 @@
 //! 模块边界：
 //! - [`json`]：极简 JSON（零依赖，离线可构建）
 //! - [`eval`]：T0 计算器（`dc_eval_expr` 的求值核心）
-//! - [`index`]：最小索引核心（Tier 3 替换为 embedding + 向量索引）
+//! - [`engine`]：embedding 抽象 + mock 实现（Tier 3）
+//! - [`library`]：资料库扫描 / 分块 / 增量（Tier 3）
+//! - [`index`]：索引核心（词元检索 + 向量检索 + 落盘持久化）
 //! - [`ffi`]：C ABI 层（unsafe 全部收敛在此）
 
+pub mod engine;
 pub mod eval;
 pub mod index;
 pub mod json;
+pub mod library;
 
 pub mod audit;
 mod ffi;

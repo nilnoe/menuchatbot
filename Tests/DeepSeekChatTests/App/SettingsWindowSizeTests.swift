@@ -1,4 +1,5 @@
 import AppKit
+import DeepSeekChatIndexing
 import SwiftUI
 import XCTest
 
@@ -25,6 +26,10 @@ final class SettingsWindowSizeTests: XCTestCase {
         let store = SessionStore(storageDirectory: tempDir)
         let controller = ChatStreamController(sessionStore: store, settings: settings)
         let auditCenter = AuditCenter(directory: tempDir)
+        let libraryIndexModel = LibraryIndexModel(
+            indexer: MockLibraryIndexer(),
+            corporaProvider: { [] }
+        )
 
         let panel = NSPanel(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
@@ -39,6 +44,7 @@ final class SettingsWindowSizeTests: XCTestCase {
                     .environmentObject(settings)
                     .environmentObject(controller)
                     .environmentObject(auditCenter)
+                    .environmentObject(libraryIndexModel)
             )
         )
         panel.contentViewController = hosting
@@ -53,6 +59,7 @@ final class SettingsWindowSizeTests: XCTestCase {
                 .environmentObject(settings)
                 .environmentObject(store)
                 .environmentObject(auditCenter)
+                .environmentObject(libraryIndexModel)
         )
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         let after = panel.frame.size

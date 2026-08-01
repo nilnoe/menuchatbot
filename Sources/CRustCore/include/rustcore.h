@@ -8,7 +8,7 @@ extern "C" {
 #endif
 
 /*
- * DeepSeek Chat Rust 核心 C ABI（Tier 2 骨架）。
+ * DeepSeek Chat Rust 核心 C ABI（Tier 2 骨架 + Tier 3 资料库）。
  *
  * 约定（详见 docs/DESIGN_RUST_CORE.md §4）：
  * - 返回 int32 错误码：0 = 成功（DC_OK），负数 = 错误；
@@ -31,8 +31,8 @@ typedef struct dc_index dc_index;
 
 /* ---- 索引句柄生命周期 ---- */
 
-/* 打开索引。path 预留（Tier 3 落盘）；config_json 形如
-   {"namespace":"history","version":1}。失败返回 NULL。 */
+/* 打开索引。path 为索引落盘目录（可 NULL = 纯内存）；config_json 形如
+   {"namespace":"history","version":2}。失败返回 NULL。 */
 dc_index *dc_index_open(const char *path, const char *config_json);
 
 void dc_index_close(dc_index *ix);
@@ -52,11 +52,25 @@ int dc_index_search(dc_index *ix, const char *query, const char *options_json,
 /* 重建：source_path 为 JSON 数组快照路径；NULL 时仅清空。 */
 int dc_index_rebuild(dc_index *ix, const char *source_path);
 
-/* 成功时 out_json = {"version","document_count","namespace","ready"}。 */
+/* 成功时 out_json = {"version","document_count","namespace","ready",
+   "files","indexed_at"}（library 命名空间含资料库统计）。 */
 int dc_index_status(dc_index *ix, char **out_json);
 
-/* 设置原子取消标志（Tier 2 骨架为一次性闩锁）。 */
+/* 请求取消当前长操作（资料库索引 / 重建）：操作级标志，开始前自动清零，
+   不影响搜索与写入（Tier 3 按操作 token 语义）。 */
 void dc_index_cancel(dc_index *ix);
+
+/* 资料库增量索引：扫描 root_path（规范化 + symlink 包含检查，拒绝逃逸），
+   按扩展名白名单分块（500~800 token 带重叠，默认 600/120），以
+   path + mtime + contentHash 增量更新（未变文件不重 embed）。
+   options_json 形如 {"corpus_id":"...","corpus_name":"...",
+   "extensions":[...],"max_file_bytes":N,"chunk_tokens":N,"overlap_tokens":N}，
+   全部字段可选。成功时 out_json = {"corpus_id","corpus_name",
+   "files_scanned","files_indexed","files_skipped","files_removed",
+   "chunks_added","chunks_total","duration_ms"}。 */
+int dc_index_index_corpus(dc_index *ix, const char *root_path,
+                          const char *options_json, char **out_json,
+                          void (*dc_free_cb)(void *));
 
 /* 拷贝最近一次错误到 buf（最多 len-1 字节 + NUL），返回写入字节数。 */
 int dc_index_last_error(dc_index *ix, char *buf, size_t len);

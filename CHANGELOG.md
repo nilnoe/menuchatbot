@@ -2,7 +2,59 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格记录各版本变化。
 
-## [Unreleased]
+## [0.3.2] - 2026-08-01
+
+### 功能（Tier 3：资料库 RAG）
+
+- **library_index（T3-1）**：Rust 侧 `RustCore/src/library.rs`——根目录
+  扫描（规范化 + symlink 包含检查，拒绝逃逸；跳过隐藏 / 二进制 / 超大 /
+  白名单外 / 依赖目录）、分块（默认 600 token、重叠 120，CJK 1 字符 ≈ 1
+  token，超大段自动切片）、增量（path + mtime + contentHash 全同才跳过，
+  改 / 删 / 增文件重扫一致）、扩展名白名单（默认 24 种文本扩展名可配置）。
+- **embedding（T3-1 mock 先行）**：`RustCore/src/engine.rs`——
+  `Embedder` trait（candle 本地模型 / 远程 OpenAI 兼容预留）+ 确定性
+  mock 实现（词元 + 字符 bigram 哈希向量，L2 归一化，余弦检索）；
+  T3-1a recall@5 ≥ 0.8 fixture 校准通过。
+- **索引落盘与版本化（T3-2c）**：`dc_index_open(path)` 支持落盘目录，
+  `save` / `load` 版本化 JSON（临时文件 + rename 原子替换），旧版本文件
+  忽略重建；索引可整体删除重建（派生数据原则）；`dc_index_cancel` 改为
+  操作级取消标志（只影响长任务，不再闩锁禁用搜索 / 写入），取消后部分
+  进度已落盘可续跑。
+- **新 ABI**：`dc_index_index_corpus`（扫描 → 分块 → mock embedding →
+  增量更新 → 报告 JSON）；`dc_index_status` 扩展 `files` / `indexed_at`；
+  INDEX_VERSION 1 → 2；rustcore.h / stub / ABI 校验同步。
+- **Swift 桥接**：`RustIndexService` 支持索引目录与
+  `indexCorpus` / `librarySnapshot` / `cancelIndexing`；新增
+  `LibraryIndexing` 协议 + `RustLibraryIndexer`（每库一句柄，
+  `<indexRoot>/<corpusID>/`）+ `MockLibraryIndexer`（测试 / 降级）；
+  `SearchScope.library(corpusID)` 按库隔离（namespace = `library/<id>`）；
+  `SearchHit` 携带来源路径。
+- **检索注入（T3-3）**：`LibraryRetrievalInjector`——发送前对最后一条
+  用户消息检索启用资料库，各库 top-k → 按文件去重 → token 预算裁剪
+  （默认 6k，4~8k 可配，低于阈值不注入）→ system 前缀注入上下文；
+  命中文件复用现有 `Source` 模型展示参考来源（标题 = 文件名，url = 路径），
+  ChatStreamController 首轮前接线，空结果不注入。
+- **命名资料库 UI（T3-5）**：设置页「本地资料库」——名称 / 路径 / 启用
+  开关 / 删除（走模型清理索引）、单库重新索引按钮、索引状态（文件数 /
+  分块数 / 最近索引时间 / 错误）、全局进度与取消；`LibraryIndexModel`
+  （MainActor）驱动后台任务，TCC security-scoped bookmark 恢复后索引，
+  启动时对启用库做增量索引。
+- **测试与门禁**：新增 16 个 Swift 测试（协议 2 / FFI 语料 3 / 注入 5 /
+  流式注入 2 / 模型 4，共 334 全绿）+ Rust 新增 27 个测试（共 54 + 集成 1
+  全绿，clippy / fmt 零违规）；`check-scale.sh` 阈值第三次校准
+  （Sources 8000 → 9000、Tests 7500 → 8500、单测试文件 600 → 700，
+  原因登记于脚本头）。
+
+### 修复
+
+- **检索性能**：`dc_index_search` 的查询向量（embedding）与查询词元
+  由 per-doc 闭包内重复计算改为循环外只算一次；history 分支文档小写
+  每文档只做一次（原来每 token 重复 lowercase 全文）。新增计数 Embedder
+  防回归测试断言「一次搜索恰好 embed 一次」。
+- **编译警告**：`RustIndexService.indexCorpus` 的 `Task.detached` 捕获
+  非 Sendable 的 `OpaquePointer`（Swift 6 严格并发下将报错）→ 增加
+  `@unchecked Sendable` FFI 句柄包装；移除多余的 `try`。`make-app.sh`
+  全流程零警告。
 
 ## [0.3.1] - 2026-08-01
 

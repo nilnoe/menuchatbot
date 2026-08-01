@@ -122,6 +122,157 @@ final class RustCoreFFIIntegrationTests: XCTestCase {
         XCTAssertEqual(state, .unavailable("Rust 索引打开失败（配置非法或 Rust 核心不可用）"))
     }
 
+    // MARK: - Tier 3 资料库索引（T3-1 / T3-2c）
+
+    /// 构造临时语料目录：返回 (目录, 内容写入闭包)。
+    private func makeCorpusDir(_ tag: String) -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dc-ffi-corpus-\(tag)-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func makeIndexRoot(_ tag: String) -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dc-ffi-index-\(tag)-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    func testCorpusIndexingRoundtripAndIncremental() async throws {
+        let corpus = makeCorpusDir("roundtrip")
+        defer { try? FileManager.default.removeItem(at: corpus) }
+        try "苹果种植指南：施肥与浇水".write(
+            to: corpus.appendingPathComponent("a.md"), atomically: true, encoding: .utf8)
+        try "香蕉牛奶制作方法".write(
+            to: corpus.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+
+        let indexRoot = makeIndexRoot("roundtrip")
+        defer { try? FileManager.default.removeItem(at: indexRoot) }
+        let indexer = RustLibraryIndexer(indexRoot: indexRoot)
+        let corpusID = UUID()
+
+        let report = try await indexer.indexCorpus(
+            corpusID: corpusID,
+            name: "资料库一",
+            rootPath: corpus.path,
+            options: CorpusIndexOptions()
+        )
+        XCTAssertEqual(report.filesIndexed, 2, "首次应全量索引")
+        XCTAssertGreaterThanOrEqual(report.chunksTotal, 2)
+
+        // 检索命中带来源路径（T3-3a）。
+        let hits = try await indexer.search(corpusID: corpusID, query: "香蕉", limit: 5)
+        XCTAssertEqual(hits.count, 1)
+        XCTAssertTrue(hits[0].path.hasSuffix("b.txt"), "命中应带来源路径：\(hits[0].path)")
+
+        // 增量：mtime + hash 未变 → 不重 embed（T3-1c）。
+        let report2 = try await indexer.indexCorpus(
+            corpusID: corpusID,
+            name: "资料库一",
+            rootPath: corpus.path,
+            options: CorpusIndexOptions()
+        )
+        XCTAssertEqual(report2.filesIndexed, 0, "未变化文件不应重索引")
+        XCTAssertEqual(report2.filesRemoved, 0)
+
+        // 修改 + 删除 → 增量一致。
+        try "苹果种植指南：新版施肥方法".write(
+            to: corpus.appendingPathComponent("a.md"), atomically: true, encoding: .utf8)
+        try FileManager.default.removeItem(at: corpus.appendingPathComponent("b.txt"))
+        let report3 = try await indexer.indexCorpus(
+            corpusID: corpusID,
+            name: "资料库一",
+            rootPath: corpus.path,
+            options: CorpusIndexOptions()
+        )
+        XCTAssertEqual(report3.filesIndexed, 1)
+        XCTAssertEqual(report3.filesRemoved, 1)
+        let afterDelete = try await indexer.search(corpusID: corpusID, query: "香蕉", limit: 5)
+        XCTAssertTrue(afterDelete.isEmpty, "删除文件后其分块应消失")
+
+        let snapshot = await indexer.snapshot(corpusID: corpusID)
+        XCTAssertEqual(snapshot.fileCount, 1)
+        XCTAssertEqual(snapshot.documentCount, report3.chunksTotal)
+        XCTAssertNotNil(snapshot.indexedAt)
+    }
+
+    func testCorpusIndexPersistsAcrossRestart() async throws {
+        let corpus = makeCorpusDir("persist")
+        defer { try? FileManager.default.removeItem(at: corpus) }
+        try "苹果种植指南".write(
+            to: corpus.appendingPathComponent("a.md"), atomically: true, encoding: .utf8)
+
+        let indexRoot = makeIndexRoot("persist")
+        defer { try? FileManager.default.removeItem(at: indexRoot) }
+        let corpusID = UUID()
+
+        let first = RustLibraryIndexer(indexRoot: indexRoot)
+        _ = try await first.indexCorpus(
+            corpusID: corpusID,
+            name: "持久化",
+            rootPath: corpus.path,
+            options: CorpusIndexOptions()
+        )
+
+        // 新实例（模拟重启）：索引从磁盘恢复，无需重新索引即可检索（T3-2c）。
+        let second = RustLibraryIndexer(indexRoot: indexRoot)
+        let hits = try await second.search(corpusID: corpusID, query: "苹果", limit: 5)
+        XCTAssertEqual(hits.count, 1)
+        XCTAssertTrue(hits[0].path.hasSuffix("a.md"))
+
+        // 删除索引目录后重扫可重建（派生数据原则）。
+        let indexDir = indexRoot.appendingPathComponent(corpusID.uuidString, isDirectory: true)
+        try FileManager.default.removeItem(at: indexDir)
+        let third = RustLibraryIndexer(indexRoot: indexRoot)
+        let report = try await third.indexCorpus(
+            corpusID: corpusID,
+            name: "持久化",
+            rootPath: corpus.path,
+            options: CorpusIndexOptions()
+        )
+        XCTAssertEqual(report.filesIndexed, 1, "索引目录删除后应能整体重建")
+    }
+
+    func testCorpusCancelDoesNotPermanentlyDisableHandle() async throws {
+        let corpus = makeCorpusDir("cancel")
+        defer { try? FileManager.default.removeItem(at: corpus) }
+        for index in 0..<30 {
+            let content = String(repeating: "文档 \(index) 内容：苹果香蕉水果指南 ", count: 60)
+            try content.write(
+                to: corpus.appendingPathComponent("f\(index).md"),
+                atomically: true,
+                encoding: .utf8
+            )
+        }
+        let indexRoot = makeIndexRoot("cancel")
+        defer { try? FileManager.default.removeItem(at: indexRoot) }
+        let indexer = RustLibraryIndexer(indexRoot: indexRoot)
+        let corpusID = UUID()
+
+        // 取消可能在任何时刻生效；无论是否打断，句柄都不应被永久禁用。
+        let task = Task {
+            try? await indexer.indexCorpus(
+                corpusID: corpusID,
+                name: "取消测试",
+                rootPath: corpus.path,
+                options: CorpusIndexOptions()
+            )
+        }
+        task.cancel()
+        _ = await task.result
+
+        let report = try await indexer.indexCorpus(
+            corpusID: corpusID,
+            name: "取消测试",
+            rootPath: corpus.path,
+            options: CorpusIndexOptions()
+        )
+        XCTAssertGreaterThanOrEqual(report.filesIndexed, 0)
+        let hits = try await indexer.search(corpusID: corpusID, query: "香蕉", limit: 5)
+        XCTAssertFalse(hits.isEmpty, "取消后重新索引应可检索")
+    }
+
     // MARK: - 审计快照（ADR-0009 P2，AU-13 / AU-14 / AU-15）
 
     func testAuditSnapshotCountsErrorsAU13() async throws {

@@ -1,4 +1,5 @@
 import AppKit
+import DeepSeekChatIndexing
 import SwiftUI
 import XCTest
 
@@ -6,6 +7,7 @@ import XCTest
 
 /// 设置页（卡片化分组 + Key 显示/隐藏 + 测试连接按钮）挂窗渲染冒烟。
 final class SettingsViewRenderTests: XCTestCase {
+    @MainActor
     func testSettingsViewRenders() {
         let defaults = UserDefaults(suiteName: "SettingsRender-\(UUID().uuidString)")!
         let settings = SettingsStore(
@@ -19,6 +21,10 @@ final class SettingsViewRenderTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tempDir) }
         let sessionStore = SessionStore(storageDirectory: tempDir)
         let auditCenter = AuditCenter(directory: tempDir)
+        let libraryIndexModel = LibraryIndexModel(
+            indexer: MockLibraryIndexer(),
+            corporaProvider: { [] }
+        )
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 460, height: 640),
@@ -32,6 +38,7 @@ final class SettingsViewRenderTests: XCTestCase {
                     .environmentObject(settings)
                     .environmentObject(sessionStore)
                     .environmentObject(auditCenter)
+                    .environmentObject(libraryIndexModel)
             )
         )
         hosting.frame = NSRect(x: 0, y: 0, width: 460, height: 640)

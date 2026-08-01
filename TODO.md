@@ -1,24 +1,27 @@
 # DeepSeek Chat 开发路线图（TODO）
 
-> 版本状态：Beta 0.3.1（2026-08-01）
+> 版本状态：Beta 0.3.2（2026-08-01）
 > 本文档是**现行规划**：工程原则 + Rust 核心与 AI 能力路线。
 > 历史 TODO（性能记录 / UI 改进 / Beta 0.2~1.0 路线 / 工程记录 / 长期探索）
 > 已拆分至 [TODO_HISTORY.md](TODO_HISTORY.md)，**降级为低优先级归档**，
 > 以本文档为准。全部文档索引见 [docs/README.md](docs/README.md)。
 
-> **当前状态（2026-08-01）**：测试 272 全绿；分层架构重构与测试模块化
+> **当前状态（2026-08-01）**：测试 334 全绿（cargo test 54 + 集成 1）；
+> 分层架构重构与测试模块化
 > Phase A 已完成（细节见 TODO_HISTORY.md / CHANGELOG.md）；Tier 2
 > 「Rust 骨架与工具链」全部落地（RustCore staticlib + C ABI、构建链与
 > 无 cargo 降级、IndexService 协议 + Rust/Mock 实现、T0 计算器、
 > 工具调用循环、effort=max），细节见 CHANGELOG.md；审计模块方案已定稿
 > （ADR-0009 + ACCEPTANCE §11）；Tier A P1（审计地基 + 四域接入 +
-> 设置页查看器）已实现，P2~P4 待做（见 Tier A）。
+> 设置页查看器）已实现，P2~P4 待做（见 Tier A）；Tier 3 资料库 RAG
+> 主体已落地（见下）。
 >
 > **历史进展存档**：0.2.x 性能里程碑、0.3 功能与 UI 收尾等逐项细节见
 > [CHANGELOG.md](CHANGELOG.md) 与 [TODO_HISTORY.md](TODO_HISTORY.md)。
 >
-> **下一步方向**：按第二节 Tier 3 推进资料库 RAG（embedding 本地模型 +
-> 检索注入 + 命名资料库 UI）；键盘快捷键 / 全局热键 / 1.0 发布项等原
+> **下一步方向**：Tier 3 剩余项（candle 本地 embedding 接入、FSEvents
+> 增量监听、重建分片进度回调）与 Tier 4（只读文件 / 脚本沙箱）；键盘
+> 快捷键 / 全局热键 / 1.0 发布项等原
 > backlog 已降级至 TODO_HISTORY.md，按需再捞起。
 
 ---
@@ -95,15 +98,25 @@
 
 ### Tier 3｜资料库 RAG（中难度）
 
-- [ ] library_index：根目录扫描 / 分块（500~800 token 带重叠）/ 增量
-  （mtime + hash）/ 扩展名白名单
-- [ ] embedding 本地模型接入（candle；mock-embeddings feature 先行；
-  远程 OpenAI 兼容预留）
-- [ ] 检索注入 + Source 引用卡片复用（RAG 命中文件显示为参考来源）
-- [ ] 索引版本化 / rebuild（进度 + 取消）/ 一致性校验
-- [ ] 命名资料库 UI：增删改、启用开关、单库重新索引
+- [x] library_index：根目录扫描（规范化 + symlink 包含检查，隐藏 / 二进制 /
+  超大 / 白名单外 / 依赖目录跳过）/ 分块（默认 600 token、重叠 120，CJK
+  1 字符 ≈ 1 token）/ 增量（path + mtime + contentHash）/ 扩展名白名单
+  （RustCore/src/library.rs，T3-1a~e）
+- [x] embedding：mock-embeddings 先行落地（确定性哈希向量 + 余弦检索，
+  `Embedder` trait 可注入；T3-1a recall@5 ≥ 0.8 校准通过）；candle 本地
+  模型与远程 OpenAI 兼容 embedding 预留待接入
+- [x] 检索注入 + Source 引用卡片复用（`LibraryRetrievalInjector`：各库
+  top-k → 按文件去重 → token 预算裁剪（默认 6k，4~8k 可配）→ system 前缀
+  注入；命中文件生成 Source（标题 = 文件名，url = 路径），UI 零新增概念）
+- [x] 索引版本化 / rebuild（版本不匹配触发重建；索引文件可整体删除重建；
+  取消为操作级标志，取消后重启从断点续跑；一致性校验 = 增量重扫断言）；
+  重建分片进度回调待接入（当前为状态展示 + 取消）
+- [x] 命名资料库 UI：增删改、启用开关、单库重新索引按钮、索引状态 /
+  文件 / 分块数 / 最近索引时间、全局进度与取消（设置页 + LibraryIndexModel）
 
-**验收**：见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) §6。
+**验收**：见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) §6（T3-1a~e /
+  T3-2c / T3-3a~b 已可自动验证；T3-2a 检索 p95 与 T3-2b 断点续跑性能项
+  待数据规模基准跑通后按 §9 校准）。
 
 ### Tier 4｜只读文件与脚本沙箱（中高难度，默认关闭）
 

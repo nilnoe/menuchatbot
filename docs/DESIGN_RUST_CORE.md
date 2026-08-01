@@ -6,14 +6,24 @@
 ## 1. 全景
 
 > **落地状态（2026-08-01）**：Tier 2 已完成——RustCore crate（staticlib +
-> 11 个导出符号的 C ABI）、`scripts/build-rust-core.sh`（cargo → lipo →
+> 14 个导出符号的 C ABI）、`scripts/build-rust-core.sh`（cargo → lipo →
 > ABI 符号校验）、SwiftPM `CRustCore` / `DeepSeekChatIndexing` target、
-> T0 计算器与工具调用循环均已落地并有测试护航（swift test 272 全绿，
-> cargo test 29 全绿）。与本文档的两处偏差：
+> T0 计算器与工具调用循环均已落地并有测试护航（swift test 334 全绿，
+> cargo test 54 + 集成 1 全绿）。Tier 3 资料库 RAG 主体已落地——
+> `library.rs`（扫描 / 分块 / 增量）、`engine.rs`（Embedder trait +
+> mock 实现）、索引落盘持久化（`save` / `load`，版本化 JSON）、
+> `dc_index_index_corpus` FFI、Swift 侧 `RustLibraryIndexer` /
+> `LibraryRetrievalInjector` / `LibraryIndexModel` 与设置页单库重新索引。
+> 与本文档的偏差：
 > 1. **无 cargo 降级**用「脚本用 cc/ar 产出同 ABI stub 静态库」实现，而非
 >    弱符号覆盖（实测 ld64 不拉取已定义符号的 archive member）；
 > 2. **ABI 校验**优先用 `llvm-nm`（系统 nm 读不了 Rust 1.96 / LLVM 22 的
->    对象属性），cbindgen --check 可作为后续加固项。
+>    对象属性），cbindgen --check 可作为后续加固项；
+> 3. **embedding**当前为 mock-embeddings（确定性哈希向量），candle 本地
+>    模型与远程 OpenAI 兼容 embedding 按 `Embedder` trait 预留；
+> 4. **进度回调**未实现：重建 / 索引进度目前由 Swift 任务生命周期状态
+>    （索引中 / 完成 / 取消）展示，分片级进度回调（C 函数指针 → AsyncStream）
+>    待后续接入。
 
 一句话：**Rust 编译成静态库（staticlib），通过极小 C ABI 暴露给 Swift，
 Swift 侧用协议 + 包装类隔离在 Indexing 模块里，UI 与业务层永远看不到 C 类型。**
@@ -36,8 +46,8 @@ RustIndexService（FFI 包装）  ──C ABI──►  dc_index_open/upsert/sea
 
 | Rust 模块 | 职责 | 命名空间 / 入口 |
 |---|---|---|
-| history_index | 对话历史向量索引 | `dc_index_upsert/search`（namespace=history） |
-| library_index | 资料库文件索引 + RAG | `dc_index_upsert/search`（namespace=library） |
+| history_index | 对话历史词元索引 | `dc_index_upsert/search`（namespace=history） |
+| library_index | 资料库文件索引 + RAG | `dc_index_index_corpus`（扫描 / 分块 / 增量）+ `dc_index_search`（namespace=library/<corpus_id>） |
 | math_eval | 计算器（T0 工具） | `dc_eval_expr(json) -> json` |
 
 不做：UI、网络层、会话持久化、通用 shell 执行。

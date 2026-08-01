@@ -11,14 +11,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # ---- 阈值（行数）----
-# 校准记录（ADR-0009 D8，2026-08-01）：审计模块 Tier A P1 落地前基线
-# 已为 6126 / 6319（超出旧上限 6000），按 ACCEPTANCE §9「先测基线再定值」
-# 上调至 7500；P2（FFI 审计 + CI 加固）后基线 7629，再次校准至 8000。
-# 两次校准原因均登记于此。后续再超限须重新校准并登记。
-SOURCE_LINE_LIMIT="${SOURCE_LINE_LIMIT:-8000}"         # Sources 总行数
-TEST_LINE_LIMIT="${TEST_LINE_LIMIT:-7500}"             # Tests 总行数
+# 校准记录（2026-08-01）：
+# 1. ADR-0009 Tier A P1 落地前基线 6126 / 6319（超旧上限 6000），上调至 7500；
+# 2. P2（FFI 审计 + CI 加固）后基线 7629，校准至 8000；
+# 3. Tier 3 资料库 RAG 落地后基线 8449 / 8049（Sources 超 8000、Tests 超 7500，
+#    新增 Rust 模块 + Swift 桥接 + 语料/注入/模型测试），校准至 9000 / 8500；
+#    单文件上限：ChatStreamControllerTests 623 行（Tier 3 注入测试），600 → 700。
+# 三次校准原因均登记于此。后续再超限须重新校准并登记。
+SOURCE_LINE_LIMIT="${SOURCE_LINE_LIMIT:-9000}"         # Sources 总行数
+TEST_LINE_LIMIT="${TEST_LINE_LIMIT:-8500}"             # Tests 总行数
 MAX_SOURCE_FILE_LIMIT="${MAX_SOURCE_FILE_LIMIT:-800}"  # Sources 单文件上限
-MAX_TEST_FILE_LIMIT="${MAX_TEST_FILE_LIMIT:-600}"      # Tests 单文件上限
+MAX_TEST_FILE_LIMIT="${MAX_TEST_FILE_LIMIT:-700}"      # Tests 单文件上限
 
 FAILED=0
 

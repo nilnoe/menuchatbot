@@ -4,6 +4,7 @@ struct SettingsView: View {
     @EnvironmentObject var settings: SettingsStore
     @EnvironmentObject var sessionStore: SessionStore
     @EnvironmentObject var auditCenter: AuditCenter
+    @EnvironmentObject var libraryIndexModel: LibraryIndexModel
     var onClose: () -> Void
 
     @FocusState private var keyFocused: Bool
@@ -373,7 +374,17 @@ struct SettingsView: View {
                             .labelsHidden()
                             .help(corpus.isEnabled ? "启用" : "停用")
                         Button {
-                            settings.corpora.removeAll { $0.id == corpus.id }
+                            libraryIndexModel.reindex(corpus: corpus)
+                        } label: {
+                            Image(systemName: "arrow.clockwise")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("重新索引")
+                        .disabled(libraryIndexModel.status(for: corpus.id)?.isIndexing == true)
+                        Button {
+                            let corpusID = corpus.id
+                            settings.corpora.removeAll { $0.id == corpusID }
+                            Task { await libraryIndexModel.remove(corpusID: corpusID) }
                         } label: {
                             Image(systemName: "minus.circle")
                         }
@@ -385,6 +396,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    corpusStatusRow(corpus.id)
                 }
             }
 
@@ -393,11 +405,54 @@ struct SettingsView: View {
             }
             .buttonStyle(.borderless)
 
+            if libraryIndexModel.isAnyIndexing {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text("正在索引资料库…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("取消") {
+                        libraryIndexModel.cancelAll()
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                }
+            }
+
             Text(
                 "AI 只检索这些目录内的文件（经系统授权）；目录外的资料不会被读取。检索到的内容会随请求发送给所选模型。"
             )
             .font(.caption)
             .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func corpusStatusRow(_ corpusID: UUID) -> some View {
+        if let status = libraryIndexModel.status(for: corpusID) {
+            if let error = status.lastError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            } else if status.isIndexing {
+                HStack(spacing: 4) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text("索引中…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if status.chunkCount > 0 || status.fileCount > 0 {
+                let indexedText =
+                    status.lastIndexedAt.map {
+                        " · " + $0.formatted(date: .abbreviated, time: .shortened)
+                    } ?? ""
+                Text("\(status.fileCount) 个文件 · \(status.chunkCount) 个分块\(indexedText)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -431,15 +486,16 @@ struct SettingsView: View {
         panel.prompt = "添加资料库目录"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let bookmark = SecurityScopedBookmark.make(for: url)
-        settings.corpora.append(
-            LibraryCorpus(
-                id: UUID(),
-                name: url.lastPathComponent,
-                path: url.path,
-                isEnabled: true,
-                bookmarkData: bookmark
-            )
+        let corpus = LibraryCorpus(
+            id: UUID(),
+            name: url.lastPathComponent,
+            path: url.path,
+            isEnabled: true,
+            bookmarkData: bookmark
         )
+        settings.corpora.append(corpus)
+        // 新库立即开始后台索引（增量：首次为全量扫描 + 分块）。
+        libraryIndexModel.reindex(corpus: corpus)
     }
 
     private var windowSection: some View {

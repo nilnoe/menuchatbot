@@ -2,7 +2,7 @@
 
 > **AI 项目**：一个完全由 DeepSeek 大模型驱动的原生 macOS 菜单栏聊天应用。
 >
-> 当前版本：**Beta 0.3.1** · 纯 Swift / SwiftUI 实现，无 Web 框架、无 WebView、无运行时服务进程。
+> 当前版本：**Beta 0.3.2** · 纯 Swift / SwiftUI 实现，无 Web 框架、无 WebView、无运行时服务进程。
 > 版本更迭与开发经验见 [CHANGELOG.md](CHANGELOG.md)。
 
 点击菜单栏图标即可呼出聊天面板，随时问 AI、联网搜索、管理多个会话——像系统自带工具一样轻快。
@@ -18,8 +18,8 @@ DeepSeek Chat 是一个常驻在 macOS 菜单栏的 AI 聊天应用：
 
 - 不占 Dock、不常驻后台窗口，需要时点击菜单栏图标呼出，点外部自动收起
 - 对话由 **DeepSeek AI 模型**（`deepseek-v4-flash` / `deepseek-v4-pro`）驱动，支持思考模式与联网搜索
-- **原生 Swift + Rust 核心**：Rust 以静态库并入主二进制（计算器 / 索引，
-  无运行时服务进程），release 主程序约 10MB，常驻内存约几十 MB，启动即用
+- **原生 Swift + Rust 核心**：Rust 以静态库并入主二进制（计算器 / 资料库
+  索引，无运行时服务进程），release 主程序约 10MB，常驻内存约几十 MB，启动即用
 
 ## 功能特性
 
@@ -36,6 +36,9 @@ DeepSeek Chat 是一个常驻在 macOS 菜单栏的 AI 聊天应用：
 | 对话设置 | 自定义 System Prompt、temperature（0~2）随机性调节、API Key 测试连接 |
 | 自定义模型供应商 | 设置页接入任意 OpenAI 兼容 API（自定义 base_url 与模型列表），
   自定义模型自动省略 DeepSeek 专属参数 |
+| 资料库 RAG | 设置命名资料库目录（系统授权），本地扫描 / 分块 /
+  增量索引（Rust 核心），提问时自动检索并注入上下文，命中文件以参考来源
+  卡片展示；支持单库重新索引与取消 |
 | Token 用量与费用估算 | 每条回复显示输入 / 输出 / 缓存命中用量与费用估算，
   侧栏会话行累计展示 |
 | 计算器工具 | 开启后可让模型调用内置计算器（Rust 表达式求值，无子进程 /
@@ -95,7 +98,7 @@ swift test        # 运行 318 个单元测试（含性能基线）
 .build/debug/DeepSeekChat   # 启动开发版
 ```
 
-> Rust 核心（计算器 / 索引）以静态库形式链接进主二进制：正式构建与
+> Rust 核心（计算器 / 资料库索引）以静态库形式链接进主二进制：正式构建与
 > `make-app.sh` 会自动先跑 `scripts/build-rust-core.sh`（release 双架构
 > universal；无 cargo 时自动降级为同 ABI stub 库，FFI 集成测试跳过，
 > 应用其余功能不受影响）。只跑 `swift test` 前如需真实 Rust 实现，先执行
@@ -114,7 +117,8 @@ DeepSeekChat/
 ├── CONTRIBUTING.md            # 贡献指南
 ├── LICENSE                    # MIT 许可
 ├── RustCore/                  # Rust 核心 crate（staticlib + C ABI）
-│   ├── src/                   #   json / eval（计算器）/ index / ffi
+│   ├── src/                   #   json / eval（计算器）/ engine（embedding）/
+│   │                         #   library（资料库扫描分块）/ index / ffi
 │   ├── stub/                  #   无 cargo 时的同 ABI 降级实现
 │   └── tests/                 #   Rust 侧单测 / 集成测试
 ├── scripts/build-rust-core.sh # Rust 静态库构建（cargo → lipo → 校验）

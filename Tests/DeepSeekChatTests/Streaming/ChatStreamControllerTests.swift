@@ -34,7 +34,8 @@ final class ChatStreamControllerTests: XCTestCase {
     private func makeController(
         _ handler: @escaping (URLRequest) throws -> (HTTPURLResponse, [String], TimeInterval),
         toolRegistry: ToolRegistry? = nil,
-        maxToolRounds: Int = AppConfiguration.defaultMaxToolRounds
+        maxToolRounds: Int = AppConfiguration.defaultMaxToolRounds,
+        retrievalInjector: RetrievalInjecting? = nil
     ) -> ChatStreamController {
         DelayedStreamingURLProtocol.handler = handler
         return ChatStreamController(
@@ -42,6 +43,7 @@ final class ChatStreamControllerTests: XCTestCase {
             settings: settings,
             toolRegistry: toolRegistry,
             maxToolRounds: maxToolRounds,
+            retrievalInjector: retrievalInjector,
             makeClient: { _, baseURL in
                 DeepSeekClient(
                     baseURL: baseURL, apiKey: "test-key",
@@ -55,7 +57,8 @@ final class ChatStreamControllerTests: XCTestCase {
     private func makeToolController(
         _ handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data),
         toolRegistry: ToolRegistry? = nil,
-        maxToolRounds: Int = AppConfiguration.defaultMaxToolRounds
+        maxToolRounds: Int = AppConfiguration.defaultMaxToolRounds,
+        retrievalInjector: RetrievalInjecting? = nil
     ) -> ChatStreamController {
         MockURLProtocol.handler = handler
         return ChatStreamController(
@@ -63,6 +66,7 @@ final class ChatStreamControllerTests: XCTestCase {
             settings: settings,
             toolRegistry: toolRegistry,
             maxToolRounds: maxToolRounds,
+            retrievalInjector: retrievalInjector,
             makeClient: { _, baseURL in
                 DeepSeekClient(
                     baseURL: baseURL, apiKey: "test-key",
@@ -526,5 +530,94 @@ final class ChatStreamControllerTests: XCTestCase {
             1,
             "stop 时仅第一个工具结果落库"
         )
+    }
+
+    // MARK: - 资料库检索注入（T3-3）
+
+    func testRetrievalInjectionAddsContextAndSources() async throws {
+        let session = store.createSession(title: "资料库会话")
+        store.appendMessage(sessionID: session.id, ChatMessage(role: .user, content: "苹果怎么种"))
+        let fake = FakeRetrievalInjector(
+            result: RetrievalResult(
+                context: "[资料库：工作笔记] 苹果种植指南\n---",
+                sources: [Source(title: "guide.md", url: "/docs/guide.md")]
+            )
+        )
+        let controller = makeToolController(
+            { [self] request in
+                let body = try httpBody(of: request)
+                let json = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: body) as? [String: Any]
+                )
+                let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
+                let system = messages.first { $0["role"] as? String == "system" }
+                XCTAssertNotNil(system, "注入上下文应以 system 消息开头")
+                XCTAssertEqual(system?["content"] as? String, "[资料库：工作笔记] 苹果种植指南\n---")
+                XCTAssertEqual(fake.retrievedQueries, ["苹果怎么种"], "应以最后一条用户消息为查询")
+                return (
+                    httpResponse(request, status: 200),
+                    Data(
+                        [
+                            "data: {\"choices\":[{\"delta\":{\"content\":\"参考指南回答\"}}]}\n\n",
+                            "data: [DONE]\n\n",
+                        ].joined().utf8
+                    )
+                )
+            },
+            retrievalInjector: fake
+        )
+
+        controller.beginAssistantReply(sessionID: session.id)
+        try await waitFor { controller.streamingSessionID == nil }
+
+        let messages = try XCTUnwrap(store.session(id: session.id)?.messages)
+        let assistant = try XCTUnwrap(messages.last(where: { $0.role == .assistant }))
+        XCTAssertEqual(assistant.sources, [Source(title: "guide.md", url: "/docs/guide.md")])
+    }
+
+    func testNoRetrievalInjectionWhenEmptyResult() async throws {
+        let session = store.createSession(title: "无命中会话")
+        store.appendMessage(sessionID: session.id, ChatMessage(role: .user, content: "问题"))
+        let fake = FakeRetrievalInjector(result: RetrievalResult(context: "", sources: []))
+        let controller = makeToolController(
+            { [self] request in
+                let body = try httpBody(of: request)
+                let json = try XCTUnwrap(
+                    JSONSerialization.jsonObject(with: body) as? [String: Any]
+                )
+                let messages = try XCTUnwrap(json["messages"] as? [[String: Any]])
+                XCTAssertFalse(
+                    messages.contains { $0["role"] as? String == "system" },
+                    "空检索结果不应注入 system 上下文"
+                )
+                return (
+                    httpResponse(request, status: 200),
+                    Data(
+                        "data: {\"choices\":[{\"delta\":{\"content\":\"答\"}}]}\n\ndata: [DONE]\n\n"
+                            .utf8)
+                )
+            },
+            retrievalInjector: fake
+        )
+
+        controller.beginAssistantReply(sessionID: session.id)
+        try await waitFor { controller.streamingSessionID == nil }
+        let messages = try XCTUnwrap(store.session(id: session.id)?.messages)
+        XCTAssertNil(messages.last(where: { $0.role == .assistant })?.sources)
+    }
+}
+
+/// 可控检索注入器（测试用）。
+private final class FakeRetrievalInjector: RetrievalInjecting {
+    var result: RetrievalResult
+    private(set) var retrievedQueries: [String] = []
+
+    init(result: RetrievalResult) {
+        self.result = result
+    }
+
+    func retrieve(for query: String) async -> RetrievalResult {
+        retrievedQueries.append(query)
+        return result
     }
 }

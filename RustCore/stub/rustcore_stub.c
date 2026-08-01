@@ -65,6 +65,20 @@ int dc_index_status(dc_index *ix, char **out_json)
     return DC_ERR_UNAVAILABLE;
 }
 
+int dc_index_index_corpus(dc_index *ix, const char *root_path,
+                          const char *options_json, char **out_json,
+                          void (*dc_free_cb)(void *))
+{
+    (void)ix;
+    (void)root_path;
+    (void)options_json;
+    (void)dc_free_cb;
+    if (out_json != NULL) {
+        *out_json = NULL;
+    }
+    return DC_ERR_UNAVAILABLE;
+}
+
 void dc_index_cancel(dc_index *ix)
 {
     (void)ix;

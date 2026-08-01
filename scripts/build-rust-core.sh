@@ -30,7 +30,7 @@ mkdir -p "$DIST"
 
 EXPECTED_SYMBOLS=(
   dc_index_open dc_index_close dc_index_upsert dc_index_delete
-  dc_index_search dc_index_rebuild dc_index_status dc_index_cancel
+  dc_index_search dc_index_rebuild dc_index_status dc_index_index_corpus dc_index_cancel
   dc_index_last_error dc_eval_expr dc_free dc_audit_init dc_audit_snapshot
 )
 

@@ -28,7 +28,8 @@ public struct IndexableMessage: Equatable, Sendable {
     }
 }
 
-/// 检索范围。
+/// 检索范围（Tier 3：library 按资料库隔离，namespace = `library/<corpusID>`；
+/// 空名称兼容旧的统一 `library` 命名空间）。
 public enum SearchScope: Equatable, Sendable {
     case history
     case library(String)
@@ -36,7 +37,8 @@ public enum SearchScope: Equatable, Sendable {
     var namespace: String {
         switch self {
         case .history: return "history"
-        case .library: return "library"
+        case .library(let corpusID):
+            return corpusID.isEmpty ? "library" : "library/\(corpusID)"
         }
     }
 }
@@ -46,11 +48,14 @@ public struct SearchHit: Equatable, Sendable, Identifiable {
     public var id: String
     public var score: Int
     public var content: String
+    /// 来源文件路径（library 命中；history 为空字符串）。Source 卡片复用（T3-3a）。
+    public var path: String
 
-    public init(id: String, score: Int, content: String) {
+    public init(id: String, score: Int, content: String, path: String = "") {
         self.id = id
         self.score = score
         self.content = content
+        self.path = path
     }
 }
 

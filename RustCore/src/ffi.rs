@@ -9,11 +9,14 @@
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 use crate::audit;
+use crate::engine::MockEmbedder;
 use crate::eval;
-use crate::index::{IndexCore, INDEX_VERSION};
+use crate::index::{is_library_namespace, IndexCore, INDEX_VERSION};
 use crate::json::{self, Json};
+use crate::library::{ScanOptions, DEFAULT_EXTENSIONS};
 use std::ffi::{c_char, c_void, CStr, CString};
 use std::os::raw::c_int;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, RwLock};
 
@@ -31,9 +34,12 @@ pub const DC_ERR_CANCELLED: c_int = -6;
 #[repr(C)]
 pub struct dc_index {
     inner: RwLock<IndexCore>,
-    /// 原子取消标志（Tier 2 骨架为一次性闩锁，Tier 3 重构为按操作 token）。
-    cancelled: AtomicBool,
+    /// 操作级取消标志（Tier 3）：长任务开始前清零、任务内轮询；
+    /// 只影响当前长操作，不再像 Tier 2 闩锁那样永久禁用搜索 / 写入。
+    cancel_requested: AtomicBool,
     last_error: Mutex<String>,
+    /// 索引落盘目录（open 时传入；None = 纯内存，不持久化）。
+    index_dir: Option<PathBuf>,
 }
 
 type FreeCallback = Option<unsafe extern "C" fn(*mut c_void)>;
@@ -79,7 +85,7 @@ fn last_error_string(ix: &dc_index) -> String {
 }
 
 fn is_cancelled(ix: &dc_index) -> bool {
-    ix.cancelled.load(Ordering::SeqCst)
+    ix.cancel_requested.load(Ordering::SeqCst)
 }
 
 /// 把内部错误映射为错误码（按消息前缀归类，避免脆弱的位置耦合）。
@@ -134,19 +140,31 @@ fn parse_config(config_json: *const c_char) -> Option<(String, i32)> {
 
 // MARK: - 句柄生命周期
 
-/// 打开索引：`path` 预留（Tier 3 落盘），`config_json` 携带 namespace / 版本。
-/// 失败（非法 JSON）返回 NULL，Swift 侧进入 `.unavailable` 降级。
+/// 打开索引：`path` 为索引落盘目录（可 NULL = 纯内存），`config_json`
+/// 携带 namespace / 版本。版本不匹配或非法 JSON 返回 NULL，Swift 侧进入
+/// `.unavailable` 降级；落盘文件版本过期时忽略文件（首次索引重建）。
 #[no_mangle]
 pub extern "C" fn dc_index_open(path: *const c_char, config_json: *const c_char) -> *mut dc_index {
     audit::record_call();
-    let _ = path; // 骨架阶段不落盘；Tier 3 在此写索引文件
     let Some((namespace, _)) = parse_config(config_json) else {
         return std::ptr::null_mut();
     };
+    let index_dir = if path.is_null() {
+        None
+    } else {
+        unsafe { cstr(path) }.ok().map(PathBuf::from)
+    };
+    let mut core = IndexCore::new(namespace);
+    if let Some(dir) = &index_dir {
+        if let Ok(Some(stored)) = IndexCore::load(dir, INDEX_VERSION) {
+            core.restore(stored);
+        }
+    }
     let handle = dc_index {
-        inner: RwLock::new(IndexCore::new(namespace)),
-        cancelled: AtomicBool::new(false),
+        inner: RwLock::new(core),
+        cancel_requested: AtomicBool::new(false),
         last_error: Mutex::new(String::new()),
+        index_dir,
     };
     audit::record_allocated();
     Box::into_raw(Box::new(handle))
@@ -156,6 +174,14 @@ pub extern "C" fn dc_index_open(path: *const c_char, config_json: *const c_char)
 pub extern "C" fn dc_index_close(ix: *mut dc_index) {
     audit::record_call();
     if !ix.is_null() {
+        // 落盘持久化（best-effort：保存失败不阻塞关闭）。
+        if let Some(dir) = &unsafe { &*ix }.index_dir {
+            let _ = unsafe { &*ix }
+                .inner
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .save(dir);
+        }
         audit::record_freed();
         unsafe {
             drop(Box::from_raw(ix));
@@ -171,9 +197,6 @@ pub extern "C" fn dc_index_upsert(ix: *mut dc_index, message_json: *const c_char
     audit::record_call();
     let result = (|| -> Result<(), String> {
         let handle = unsafe { index_ref(ix) }?;
-        if is_cancelled(handle) {
-            return Err("cancelled".to_string());
-        }
         let input = unsafe { cstr(message_json) }?;
         let value = json::parse(input).map_err(|e| format!("invalid message JSON: {}", e))?;
         let id = value
@@ -228,13 +251,15 @@ pub extern "C" fn dc_index_search(
     audit::record_call();
     let result = (|| -> Result<String, String> {
         let handle = unsafe { index_ref(ix) }?;
-        if is_cancelled(handle) {
-            return Err("cancelled".to_string());
-        }
         let query_text = unsafe { cstr(query) }?.to_string();
         let (limit, namespace) = parse_options(options_json)?;
         let core = handle.inner.read().unwrap_or_else(|e| e.into_inner());
-        let hits = core.search(&query_text, limit, namespace.as_deref());
+        let hits = core.search(
+            &query_text,
+            limit,
+            namespace.as_deref(),
+            Some(&MockEmbedder::default()),
+        );
         let hits_json: Vec<Json> = hits
             .iter()
             .map(|hit| {
@@ -242,6 +267,7 @@ pub extern "C" fn dc_index_search(
                     ("id", Json::String(hit.id.clone())),
                     ("score", Json::Number(crate::json::Number::Int(hit.score))),
                     ("content", Json::String(hit.content.clone())),
+                    ("path", Json::String(hit.path.clone())),
                 ])
             })
             .collect();
@@ -295,9 +321,8 @@ pub extern "C" fn dc_index_rebuild(ix: *mut dc_index, source_path: *const c_char
     audit::record_call();
     let result = (|| -> Result<(), String> {
         let handle = unsafe { index_ref(ix) }?;
-        if is_cancelled(handle) {
-            return Err("cancelled".to_string());
-        }
+        // 操作级取消：开始前清零。
+        handle.cancel_requested.store(false, Ordering::SeqCst);
         let mut core = handle.inner.write().unwrap_or_else(|e| e.into_inner());
         core.clear();
         if !source_path.is_null() {
@@ -335,12 +360,146 @@ pub extern "C" fn dc_index_rebuild(ix: *mut dc_index, source_path: *const c_char
     result_to_code(ix, result)
 }
 
+/// 资料库增量索引：扫描 `root_path` → 分块 → mock embedding → 增量更新
+/// （mtime + contentHash 未变不重 embed）。`options_json` 形如
+/// `{"corpus_id","corpus_name","extensions":[...],"max_file_bytes","chunk_tokens","overlap_tokens"}`。
+/// 成功时 `out_json` 为 `{"corpus_id","corpus_name","files_scanned","files_indexed",
+/// "files_skipped","files_removed","chunks_added","chunks_total","duration_ms"}`。
+#[no_mangle]
+pub extern "C" fn dc_index_index_corpus(
+    ix: *mut dc_index,
+    root_path: *const c_char,
+    options_json: *const c_char,
+    out_json: *mut *mut c_char,
+    _free: FreeCallback,
+) -> c_int {
+    audit::record_call();
+    let result = (|| -> Result<String, String> {
+        let handle = unsafe { index_ref(ix) }?;
+        // 操作级取消：开始前清零，长任务内轮询（Tier 3 按操作 token）。
+        handle.cancel_requested.store(false, Ordering::SeqCst);
+        let root = unsafe { cstr(root_path) }?.to_string();
+        let (corpus_id, corpus_name, options) = parse_corpus_options(options_json)?;
+
+        let embedder = MockEmbedder::default();
+        let is_cancelled = || is_cancelled(handle);
+        let report = {
+            let mut core = handle.inner.write().unwrap_or_else(|e| e.into_inner());
+            core.index_library(
+                std::path::Path::new(&root),
+                &options,
+                &embedder,
+                &is_cancelled,
+            )?
+        };
+        // 落盘（含取消后的部分进度，重启可续跑；best-effort）。
+        if let Some(dir) = &handle.index_dir {
+            let core = handle.inner.read().unwrap_or_else(|e| e.into_inner());
+            core.save(dir)?;
+        }
+        Ok(Json::object(vec![
+            ("corpus_id", Json::String(corpus_id)),
+            ("corpus_name", Json::String(corpus_name)),
+            (
+                "files_scanned",
+                Json::Number(crate::json::Number::Int(report.files_scanned as i64)),
+            ),
+            (
+                "files_indexed",
+                Json::Number(crate::json::Number::Int(report.files_indexed as i64)),
+            ),
+            (
+                "files_skipped",
+                Json::Number(crate::json::Number::Int(report.files_skipped as i64)),
+            ),
+            (
+                "files_removed",
+                Json::Number(crate::json::Number::Int(report.files_removed as i64)),
+            ),
+            (
+                "chunks_added",
+                Json::Number(crate::json::Number::Int(report.chunks_added as i64)),
+            ),
+            (
+                "chunks_total",
+                Json::Number(crate::json::Number::Int(report.chunks_total as i64)),
+            ),
+            (
+                "duration_ms",
+                Json::Number(crate::json::Number::Int(report.duration_ms as i64)),
+            ),
+        ])
+        .to_string())
+    })();
+    let code = match result {
+        Ok(payload) => match unsafe { write_out(&payload, out_json) } {
+            Ok(()) => DC_OK,
+            Err(_) => DC_ERR_INVALID_ARGUMENT,
+        },
+        Err(msg) => {
+            if !ix.is_null() {
+                set_error(unsafe { &*ix }, &msg);
+            }
+            error_code_for(&msg)
+        }
+    };
+    audit::record_error(code);
+    code
+}
+
+/// 解析资料库索引 options；全部字段可选（默认见 [`ScanOptions::default`]）。
+fn parse_corpus_options(
+    options_json: *const c_char,
+) -> Result<(String, String, ScanOptions), String> {
+    let mut options = ScanOptions::default();
+    let mut corpus_id = String::new();
+    let mut corpus_name = String::new();
+    if !options_json.is_null() {
+        let text = unsafe { cstr(options_json) }?;
+        let value = json::parse(text).map_err(|e| format!("invalid options JSON: {}", e))?;
+        corpus_id = value
+            .get("corpus_id")
+            .and_then(Json::as_str)
+            .unwrap_or_default()
+            .to_string();
+        corpus_name = value
+            .get("corpus_name")
+            .and_then(Json::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if let Some(Json::Array(extensions)) = value.get("extensions") {
+            let parsed: Vec<String> = extensions
+                .iter()
+                .filter_map(Json::as_str)
+                .map(|s| s.to_lowercase())
+                .collect();
+            if !parsed.is_empty() {
+                options.extensions = parsed;
+            }
+        }
+        if let Some(max) = value.get("max_file_bytes").and_then(Json::as_i64) {
+            options.max_file_bytes = max.max(1) as u64;
+        }
+        if let Some(chunk) = value.get("chunk_tokens").and_then(Json::as_i64) {
+            options.chunk_tokens = chunk.max(64) as usize;
+        }
+        if let Some(overlap) = value.get("overlap_tokens").and_then(Json::as_i64) {
+            options.overlap_tokens = overlap.max(0) as usize;
+        }
+    }
+    if options.extensions.is_empty() {
+        options.extensions = DEFAULT_EXTENSIONS.iter().map(|s| s.to_string()).collect();
+    }
+    Ok((corpus_id, corpus_name, options))
+}
+
 #[no_mangle]
 pub extern "C" fn dc_index_status(ix: *mut dc_index, out_json: *mut *mut c_char) -> c_int {
     audit::record_call();
     let result = (|| -> Result<String, String> {
         let handle = unsafe { index_ref(ix) }?;
         let core = handle.inner.read().unwrap_or_else(|e| e.into_inner());
+        let is_library = is_library_namespace(core.namespace());
         Ok(Json::object(vec![
             (
                 "version",
@@ -352,6 +511,18 @@ pub extern "C" fn dc_index_status(ix: *mut dc_index, out_json: *mut *mut c_char)
             ),
             ("namespace", Json::String(core.namespace().to_string())),
             ("ready", Json::Bool(true)),
+            (
+                "files",
+                Json::Number(crate::json::Number::Int(if is_library {
+                    core.manifest_len() as i64
+                } else {
+                    0
+                })),
+            ),
+            (
+                "indexed_at",
+                Json::Number(crate::json::Number::Int(core.indexed_at())),
+            ),
         ])
         .to_string())
     })();
@@ -375,7 +546,9 @@ pub extern "C" fn dc_index_status(ix: *mut dc_index, out_json: *mut *mut c_char)
 pub extern "C" fn dc_index_cancel(ix: *mut dc_index) {
     audit::record_call();
     if !ix.is_null() {
-        unsafe { &*ix }.cancelled.store(true, Ordering::SeqCst);
+        unsafe { &*ix }
+            .cancel_requested
+            .store(true, Ordering::SeqCst);
     }
 }
 
@@ -502,6 +675,11 @@ pub extern "C" fn dc_audit_snapshot(out_json: *mut *mut c_char) -> c_int {
 mod tests {
     use super::*;
     use std::ffi::CString;
+    use std::sync::Mutex as StdMutex;
+
+    /// 串行化产生错误码的测试：`audit` 是进程级计数器，AU-13 需要精确增量，
+    /// 并行执行会串扰（-1 码可能来自其他测试）。
+    static AUDIT_SERIAL: StdMutex<()> = StdMutex::new(());
 
     /// 封装：把输出 JSON 拷回 String 并释放。
     fn take_output(out: *mut *mut c_char) -> Option<String> {
@@ -526,6 +704,7 @@ mod tests {
 
     #[test]
     fn eval_roundtrip() {
+        let _guard = AUDIT_SERIAL.lock().unwrap();
         let (code, output) = eval_ffi(r#"{"expr":"1 + 2 * 3"}"#);
         assert_eq!(code, DC_OK);
         let value = json::parse(&output).unwrap();
@@ -535,6 +714,7 @@ mod tests {
 
     #[test]
     fn eval_invalid_expression_returns_code_and_error_json() {
+        let _guard = AUDIT_SERIAL.lock().unwrap();
         let (code, output) = eval_ffi(r#"{"expr":"1/0"}"#);
         assert_eq!(code, DC_ERR_INVALID_ARGUMENT);
         let value = json::parse(&output).unwrap();
@@ -544,6 +724,7 @@ mod tests {
 
     #[test]
     fn eval_invalid_json_returns_json_error() {
+        let _guard = AUDIT_SERIAL.lock().unwrap();
         let (code, output) = eval_ffi("not json");
         assert_eq!(code, DC_ERR_JSON);
         assert!(json::parse(&output).unwrap().get("ok").unwrap().as_bool() == Some(false));
@@ -559,6 +740,7 @@ mod tests {
 
     #[test]
     fn index_upsert_search_delete_roundtrip() {
+        let _guard = AUDIT_SERIAL.lock().unwrap();
         let ix = open_index(Some(r#"{"namespace":"history"}"#));
         assert!(!ix.is_null());
 
@@ -606,6 +788,7 @@ mod tests {
 
     #[test]
     fn index_upsert_rejects_missing_fields() {
+        let _guard = AUDIT_SERIAL.lock().unwrap();
         let ix = open_index(None);
         let bad = CString::new(r#"{"id":"m1"}"#).unwrap();
         assert_eq!(dc_index_upsert(ix, bad.as_ptr()), DC_ERR_JSON);
@@ -624,12 +807,15 @@ mod tests {
 
     #[test]
     fn index_open_rejects_invalid_config() {
+        let _guard = AUDIT_SERIAL.lock().unwrap();
         let ix = open_index(Some("not json"));
         assert!(ix.is_null(), "非法 config 应返回 NULL（open 失败）");
     }
 
     #[test]
-    fn index_cancel_blocks_search() {
+    fn cancel_does_not_block_search_or_upsert() {
+        let _guard = AUDIT_SERIAL.lock().unwrap();
+        // Tier 3：取消是操作级标志，只影响长任务，不再闩锁禁用搜索 / 写入。
         let ix = open_index(None);
         let msg = CString::new(r#"{"id":"m1","content":"内容"}"#).unwrap();
         assert_eq!(dc_index_upsert(ix, msg.as_ptr()), DC_OK);
@@ -638,12 +824,165 @@ mod tests {
         let query = CString::new("内容").unwrap();
         let mut out: *mut c_char = std::ptr::null_mut();
         let code = dc_index_search(ix, query.as_ptr(), std::ptr::null(), &mut out, None);
-        assert_eq!(code, DC_ERR_CANCELLED);
+        assert_eq!(code, DC_OK, "取消不应影响搜索");
+        dc_index_close(ix);
+    }
+
+    // MARK: - Tier 3 资料库 FFI
+
+    fn corpus_temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("dc_ffi_{}_{}", tag, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn index_corpus(ix: *mut dc_index, root: &str, options: &str) -> (c_int, String) {
+        let root = CString::new(root).unwrap();
+        let options = CString::new(options).unwrap();
+        let mut out: *mut c_char = std::ptr::null_mut();
+        let code = dc_index_index_corpus(ix, root.as_ptr(), options.as_ptr(), &mut out, None);
+        let output = take_output(&mut out).unwrap_or_default();
+        (code, output)
+    }
+
+    #[test]
+    fn index_corpus_roundtrip_and_incremental_ffi() {
+        let _guard = AUDIT_SERIAL.lock().unwrap();
+        let dir = corpus_temp_dir("corpus");
+        std::fs::write(dir.join("a.md"), "苹果种植指南：施肥与浇水").unwrap();
+        std::fs::write(dir.join("b.txt"), "香蕉牛奶制作方法").unwrap();
+
+        let ix = open_index(Some(r#"{"namespace":"library/c1"}"#));
+        assert!(!ix.is_null());
+        let (code, output) = index_corpus(
+            ix,
+            dir.to_str().unwrap(),
+            r#"{"corpus_id":"c1","corpus_name":"资料库一"}"#,
+        );
+        assert_eq!(code, DC_OK, "索引应成功：{}", output);
+        let value = json::parse(&output).unwrap();
+        assert_eq!(value.get("files_indexed").unwrap().as_i64(), Some(2));
+        assert_eq!(value.get("corpus_id").unwrap().as_str(), Some("c1"));
+
+        let query = CString::new("香蕉").unwrap();
+        let mut out: *mut c_char = std::ptr::null_mut();
+        assert_eq!(
+            dc_index_search(
+                ix,
+                query.as_ptr(),
+                CString::new(r#"{"limit":5,"namespace":"library/c1"}"#)
+                    .unwrap()
+                    .as_ptr(),
+                &mut out,
+                None
+            ),
+            DC_OK
+        );
+        let search = take_output(&mut out).unwrap();
+        let search = json::parse(&search).unwrap();
+        assert_eq!(search.get("count").unwrap().as_i64(), Some(1));
+        let hit = search.get("hits").unwrap().at(0).unwrap();
+        assert!(
+            hit.get("path")
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .ends_with("b.txt"),
+            "命中应带来源路径"
+        );
+
+        // 增量：未变化 → 不重 embed。
+        let (code2, output2) = index_corpus(
+            ix,
+            dir.to_str().unwrap(),
+            r#"{"corpus_id":"c1","corpus_name":"资料库一"}"#,
+        );
+        assert_eq!(code2, DC_OK);
+        let value2 = json::parse(&output2).unwrap();
+        assert_eq!(value2.get("files_indexed").unwrap().as_i64(), Some(0));
+        assert_eq!(value2.get("files_removed").unwrap().as_i64(), Some(0));
+
+        // 状态应含资料库信息。
+        let mut status: *mut c_char = std::ptr::null_mut();
+        assert_eq!(dc_index_status(ix, &mut status), DC_OK);
+        let status_json = take_output(&mut status).unwrap();
+        let status = json::parse(&status_json).unwrap();
+        assert_eq!(status.get("files").unwrap().as_i64(), Some(2));
+
+        dc_index_close(ix);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn index_corpus_persists_across_reopen() {
+        let _guard = AUDIT_SERIAL.lock().unwrap();
+        let corpus = corpus_temp_dir("persist_corpus");
+        std::fs::write(corpus.join("a.md"), "苹果种植指南").unwrap();
+        let index_dir = corpus_temp_dir("persist_index");
+
+        let path = CString::new(index_dir.to_str().unwrap()).unwrap();
+        let config = CString::new(r#"{"namespace":"library/c2","version":2}"#).unwrap();
+        let ix = dc_index_open(path.as_ptr(), config.as_ptr());
+        assert!(!ix.is_null());
+        let (code, _) = index_corpus(
+            ix,
+            corpus.to_str().unwrap(),
+            r#"{"corpus_id":"c2","corpus_name":"持久化"}"#,
+        );
+        assert_eq!(code, DC_OK);
+        dc_index_close(ix);
+
+        // 重开同目录：索引从磁盘恢复，无需重新索引即可检索。
+        let ix2 = dc_index_open(path.as_ptr(), config.as_ptr());
+        assert!(!ix2.is_null());
+        let query = CString::new("苹果").unwrap();
+        let mut out: *mut c_char = std::ptr::null_mut();
+        assert_eq!(
+            dc_index_search(
+                ix2,
+                query.as_ptr(),
+                CString::new(r#"{"limit":5,"namespace":"library/c2"}"#)
+                    .unwrap()
+                    .as_ptr(),
+                &mut out,
+                None
+            ),
+            DC_OK
+        );
+        let search = json::parse(&take_output(&mut out).unwrap()).unwrap();
+        assert_eq!(search.get("count").unwrap().as_i64(), Some(1));
+        dc_index_close(ix2);
+
+        let _ = std::fs::remove_dir_all(&corpus);
+        let _ = std::fs::remove_dir_all(&index_dir);
+    }
+
+    #[test]
+    fn index_corpus_rejects_escape_and_missing_root() {
+        let _guard = AUDIT_SERIAL.lock().unwrap();
+        let ix = open_index(Some(r#"{"namespace":"library/c3"}"#));
+        assert!(!ix.is_null());
+        // 根目录不存在。
+        let (code, _) = index_corpus(ix, "/nonexistent/dc-root-xyz", r#"{"corpus_id":"c3"}"#);
+        assert_eq!(code, DC_ERR_INVALID_ARGUMENT);
+        // 空 root。
+        assert_eq!(
+            dc_index_index_corpus(
+                ix,
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                None
+            ),
+            DC_ERR_INVALID_ARGUMENT
+        );
         dc_index_close(ix);
     }
 
     #[test]
     fn null_pointers_return_error_not_panic() {
+        let _guard = AUDIT_SERIAL.lock().unwrap();
         let mut out: *mut c_char = std::ptr::null_mut();
         let code = dc_eval_expr(std::ptr::null(), &mut out, None);
         assert_eq!(code, DC_ERR_JSON, "null 输入应返回错误码而非 panic");
@@ -669,6 +1008,7 @@ mod tests {
 
     #[test]
     fn audit_snapshot_counts_match_returned_codes_au13() {
+        let _guard = AUDIT_SERIAL.lock().unwrap();
         let before = snapshot_counts();
 
         let (code, _) = eval_ffi(r#"{"expr":"1/0"}"#);
@@ -700,6 +1040,7 @@ mod tests {
 
     #[test]
     fn outstanding_allocations_return_to_zero_au14() {
+        let _guard = AUDIT_SERIAL.lock().unwrap();
         let before = crate::audit::outstanding_allocations();
 
         for _ in 0..10 {

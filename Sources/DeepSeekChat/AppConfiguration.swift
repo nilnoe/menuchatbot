@@ -16,6 +16,11 @@ enum AppConfiguration {
             .appendingPathComponent(appSupportDirectoryName, isDirectory: true)
     }
 
+    /// 索引落盘根目录（Tier 3：每资料库一个子目录，派生数据可整体删除重建）。
+    static var indexDirectory: URL {
+        appSupportDirectory.appendingPathComponent("index", isDirectory: true)
+    }
+
     /// 主面板窗口 frame autosave 名称。
     static let panelAutosaveName = "mainPanelV2"
 
@@ -46,4 +51,9 @@ enum AppConfiguration {
 
     /// 工具调用循环轮次上限（ADR-0006 D3：每轮对话工具调用 ≤ N 次）。
     static let defaultMaxToolRounds = 3
+
+    /// RAG 注入 token 预算（T3-3b：ADR-0005 D4 建议 4~8k，可配置）。
+    static let ragTokenBudget = 6_000
+    /// 每资料库检索 top-k 块数（按文件去重后参与预算裁剪）。
+    static let ragTopKPerCorpus = 4
 }

@@ -52,12 +52,27 @@ final class IndexServiceProtocolTests: XCTestCase {
     func testSearchNamespaceIsolation() async throws {
         let service = MockIndexService()
         try await service.upsert(makeDoc(id: "h1", content: "苹果", namespace: "history"))
-        try await service.upsert(makeDoc(id: "l1", content: "苹果", namespace: "library"))
+        try await service.upsert(
+            makeDoc(id: "l1", content: "苹果", namespace: "library/资料库1"))
 
         let history = try await service.search("苹果", scope: .history, limit: 10)
-        let library = try await service.search("苹果", scope: .library("资料库"), limit: 10)
+        let library = try await service.search("苹果", scope: .library("资料库1"), limit: 10)
         XCTAssertEqual(history.map(\.id), ["h1"])
         XCTAssertEqual(library.map(\.id), ["l1"])
+    }
+
+    func testSearchScopeLibraryNamespaceIsPerCorpus() {
+        // Tier 3：library 命名空间 = library/<corpusID>，空名兼容统一 library。
+        XCTAssertEqual(SearchScope.library("c1").namespace, "library/c1")
+        XCTAssertEqual(SearchScope.library("").namespace, "library")
+        XCTAssertEqual(SearchScope.history.namespace, "history")
+    }
+
+    func testSearchHitCarriesSourcePath() {
+        let hit = SearchHit(id: "chunk-1", score: 500, content: "内容", path: "/docs/a.md")
+        XCTAssertEqual(hit.path, "/docs/a.md")
+        let keywordHit = SearchHit(id: "m1", score: 2, content: "内容")
+        XCTAssertEqual(keywordHit.path, "", "history 命中 path 默认空")
     }
 
     func testUpsertIsIdempotent() async throws {

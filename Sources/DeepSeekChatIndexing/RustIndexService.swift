@@ -6,7 +6,7 @@ public struct RustIndexConfig: Equatable, Sendable {
     public var namespace: String
     public var schemaVersion: Int
 
-    public init(namespace: String = "history", schemaVersion: Int = 1) {
+    public init(namespace: String = "history", schemaVersion: Int = 2) {
         self.namespace = namespace
         self.schemaVersion = schemaVersion
     }
@@ -19,13 +19,29 @@ public actor RustIndexService: IndexService {
 
     private let handle: OpaquePointer?
     private let schemaVersion: Int
+    /// 索引落盘目录（nil = 纯内存，不持久化）。
+    private let indexDirectory: URL?
 
-    public init(config: RustIndexConfig = RustIndexConfig()) {
+    /// FFI 句柄的 Sendable 包装：`OpaquePointer` 在 Swift 6 严格并发下不算
+    /// Sendable，但底层只是不透明指针，且所有 FFI 调用由 actor 串行化，
+    /// 跨线程传递是安全的。
+    private struct FFIHandle: @unchecked Sendable {
+        let pointer: OpaquePointer
+    }
+
+    public init(config: RustIndexConfig = RustIndexConfig(), indexDirectory: URL? = nil) {
         schemaVersion = config.schemaVersion
+        self.indexDirectory = indexDirectory
         let configJSON = Self.configJSON(config)
-        let opened = configJSON.withCString { configPtr in
-            dc_index_open(nil, configPtr)
-        }
+        let opened =
+            indexDirectory?.path.withCString { pathPtr in
+                configJSON.withCString { configPtr in
+                    dc_index_open(pathPtr, configPtr)
+                }
+            }
+            ?? configJSON.withCString { configPtr in
+                dc_index_open(nil, configPtr)
+            }
         handle = opened
         state =
             opened == nil
@@ -90,6 +106,79 @@ public actor RustIndexService: IndexService {
         }
     }
 
+    // MARK: - Tier 3 资料库
+
+    /// 增量索引资料库目录（T3-1：扫描 / 分块 / mtime+hash 增量 / 白名单）。
+    public func indexCorpus(
+        corpusID: UUID,
+        name: String,
+        rootPath: String,
+        options: CorpusIndexOptions = CorpusIndexOptions()
+    ) async throws -> CorpusIndexReport {
+        let handle = try readyHandle()
+        let optionsJSON = Self.corpusOptionsJSON(
+            corpusID: corpusID,
+            name: name,
+            options: options
+        )
+        let ffiHandle = FFIHandle(pointer: handle)
+        // 长任务放后台线程执行，actor 不阻塞；Swift 任务取消 → dc_index_cancel
+        // （Rust 侧按操作轮询取消标志，返回 DC_ERR_CANCELLED，部分进度已落盘）。
+        let result: (code: Int32, output: String?) = await withTaskCancellationHandler {
+            await Task.detached(priority: .utility) {
+                var out: UnsafeMutablePointer<CChar>? = nil
+                let code = rootPath.withCString { rootPtr in
+                    optionsJSON.withCString { optionsPtr in
+                        dc_index_index_corpus(ffiHandle.pointer, rootPtr, optionsPtr, &out, nil)
+                    }
+                }
+                let output = out.map { String(cString: $0) }
+                out.map { dc_free($0) }
+                return (code, output)
+            }.value
+        } onCancel: {
+            dc_index_cancel(ffiHandle.pointer)
+        }
+        try Self.throwIfError(result.code, handle: handle)
+        guard let output = result.output else {
+            throw IndexError.internalError("资料库索引成功但输出为空")
+        }
+        return Self.parseCorpusReport(output)
+    }
+
+    /// 资料库当前快照（文档 / 文件数 / 最近索引时间）。
+    public func librarySnapshot(corpusID: UUID) async -> LibrarySnapshot {
+        guard let handle, state == .ready else {
+            return LibrarySnapshot(corpusID: corpusID.uuidString, ready: false)
+        }
+        var out: UnsafeMutablePointer<CChar>? = nil
+        let code = dc_index_status(handle, &out)
+        defer { out.map { dc_free($0) } }
+        guard code == DC_OK, let out,
+            let data = String(cString: out).data(using: .utf8),
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return LibrarySnapshot(corpusID: corpusID.uuidString, ready: false)
+        }
+        let indexedAt =
+            (json["indexed_at"] as? Int).flatMap {
+                $0 > 0 ? Date(timeIntervalSince1970: TimeInterval($0)) : nil
+            }
+        return LibrarySnapshot(
+            corpusID: corpusID.uuidString,
+            documentCount: (json["document_count"] as? Int) ?? 0,
+            fileCount: (json["files"] as? Int) ?? 0,
+            indexedAt: indexedAt,
+            ready: (json["ready"] as? Bool) ?? false
+        )
+    }
+
+    /// 请求取消当前长操作（索引 / 重建）：操作级标志，不影响搜索与写入。
+    public func cancelIndexing() {
+        guard let handle else { return }
+        dc_index_cancel(handle)
+    }
+
     // MARK: - 内部辅助
 
     private func readyHandle() throws -> OpaquePointer {
@@ -124,6 +213,24 @@ public actor RustIndexService: IndexService {
         return encodeJSON(object) ?? "{}"
     }
 
+    private static func corpusOptionsJSON(
+        corpusID: UUID,
+        name: String,
+        options: CorpusIndexOptions
+    ) -> String {
+        var object: [String: Any] = [
+            "corpus_id": corpusID.uuidString,
+            "corpus_name": name,
+            "max_file_bytes": options.maxFileBytes,
+            "chunk_tokens": options.chunkTokens,
+            "overlap_tokens": options.overlapTokens,
+        ]
+        if let extensions = options.extensions {
+            object["extensions"] = extensions
+        }
+        return encodeJSON(object) ?? "{}"
+    }
+
     private static func encodeJSON(_ object: [String: Any]) -> String? {
         guard let data = try? JSONSerialization.data(withJSONObject: object) else {
             return nil
@@ -150,8 +257,32 @@ public actor RustIndexService: IndexService {
             else {
                 return nil
             }
-            return SearchHit(id: id, score: score, content: content)
+            return SearchHit(
+                id: id,
+                score: score,
+                content: content,
+                path: (hit["path"] as? String) ?? ""
+            )
         }
+    }
+
+    private static func parseCorpusReport(_ text: String) -> CorpusIndexReport {
+        guard let data = text.data(using: .utf8),
+            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return CorpusIndexReport()
+        }
+        return CorpusIndexReport(
+            corpusID: (json["corpus_id"] as? String) ?? "",
+            corpusName: (json["corpus_name"] as? String) ?? "",
+            filesScanned: (json["files_scanned"] as? Int) ?? 0,
+            filesIndexed: (json["files_indexed"] as? Int) ?? 0,
+            filesSkipped: (json["files_skipped"] as? Int) ?? 0,
+            filesRemoved: (json["files_removed"] as? Int) ?? 0,
+            chunksAdded: (json["chunks_added"] as? Int) ?? 0,
+            chunksTotal: (json["chunks_total"] as? Int) ?? 0,
+            durationMs: (json["duration_ms"] as? Int) ?? 0
+        )
     }
 
     private static func throwIfError(_ code: Int32, handle: OpaquePointer) throws {

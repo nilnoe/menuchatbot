@@ -10,6 +10,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private lazy var auditCenter = AuditCenter(directory: AppConfiguration.appSupportDirectory)
     private lazy var sessionStore = SessionStore(audit: auditCenter.logger)
     private lazy var settingsStore = SettingsStore(audit: auditCenter.logger)
+    /// 资料库索引器（Tier 3）：每库一个 Rust 句柄，落盘 <indexRoot>/<corpusID>/。
+    private lazy var libraryIndexer = RustLibraryIndexer(
+        indexRoot: AppConfiguration.indexDirectory
+    )
+    /// 资料库索引状态模型（设置页展示 / 重新索引 / 取消）。
+    private lazy var libraryIndexModel = LibraryIndexModel(
+        indexer: libraryIndexer,
+        corporaProvider: { [weak settingsStore] in settingsStore?.corpora ?? [] },
+        audit: auditCenter.logger
+    )
+    /// 检索注入器（T3-3）：发送前检索启用资料库，命中注入上下文 + Source。
+    private lazy var retrievalInjector = LibraryRetrievalInjector(
+        indexer: libraryIndexer,
+        corporaProvider: { [weak settingsStore] in settingsStore?.corpora ?? [] }
+    )
     /// 进程内工具注册表：当前仅注册 T0 计算器（其余分级随 Tier 3/4 落地）。
     private lazy var toolRegistry: InProcessToolRegistry = {
         let registry = InProcessToolRegistry()
@@ -42,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sessionStore: sessionStore,
         settings: settingsStore,
         toolRegistry: toolRegistry,
+        retrievalInjector: retrievalInjector,
         audit: auditCenter.logger
     )
     private lazy var panelController = PanelController()
@@ -53,12 +69,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenuBuilder.build()
         statusItemController.install()
+        // 启动后台增量索引（已启用资料库；未变文件不重 embed）。
+        libraryIndexModel.start()
 
         let root = ContentView()
             .environmentObject(sessionStore)
             .environmentObject(settingsStore)
             .environmentObject(streamController)
             .environmentObject(auditCenter)
+            .environmentObject(libraryIndexModel)
         // 统一系统表面风格：不叠加整窗毛玻璃。
         // 参考 ChatGPTUI / Messages 类聊天应用的惯例——系统底色 + 纯色组件，
         // 避免窗口材质与内部组件互相叠加造成风格割裂。

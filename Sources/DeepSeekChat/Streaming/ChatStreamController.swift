@@ -25,6 +25,8 @@ final class ChatStreamController: ObservableObject {
     private let toolRegistry: ToolRegistry?
     /// 工具调用轮次上限（ADR-0006 D3）。
     private let maxToolRounds: Int
+    /// 资料库检索注入（Tier 3-3）：nil = 未启用 / 无资料库，不注入。
+    private let retrievalInjector: RetrievalInjecting?
     /// 审计记录器（ADR-0009 B/C 域：轮次上限、工具执行）。
     private let audit: AuditLogging
     /// 本次发送的关联 ID（AU-9：贯穿工具轮次与流式）。
@@ -42,6 +44,7 @@ final class ChatStreamController: ObservableObject {
         contextBuilder: ContextBuilder = ContextBuilder(),
         toolRegistry: ToolRegistry? = nil,
         maxToolRounds: Int = AppConfiguration.defaultMaxToolRounds,
+        retrievalInjector: RetrievalInjecting? = nil,
         audit: AuditLogging = NullAuditLogger(),
         makeClient: @escaping @MainActor (String, String) -> DeepSeekClient = {
             DeepSeekClient(baseURL: $1, apiKey: $0)
@@ -52,6 +55,7 @@ final class ChatStreamController: ObservableObject {
         self.contextBuilder = contextBuilder
         self.toolRegistry = toolRegistry
         self.maxToolRounds = maxToolRounds
+        self.retrievalInjector = retrievalInjector
         self.audit = audit
         self.makeClient = makeClient
     }
@@ -158,6 +162,27 @@ final class ChatStreamController: ObservableObject {
         var currentState = firstState
         var round = 0
         var limitMessageSent = false
+
+        // 资料库检索注入（T3-3b）：首轮前对最后一条用户消息检索；
+        // 命中则注入上下文（system 前缀）并把来源挂到首个 assistant 消息
+        // （Source 卡片复用：标题 = 文件名，url = 路径）。
+        if let retrievalInjector {
+            let query = history.last(where: { $0.role == "user" })?.content ?? ""
+            let result = await retrievalInjector.retrieve(for: query)
+            if !result.context.isEmpty {
+                currentHistory.insert(
+                    APIMessage(role: "system", content: result.context),
+                    at: 0
+                )
+                if !result.sources.isEmpty {
+                    sessionStore.updateMessage(
+                        sessionID: sessionID,
+                        messageID: currentState.id
+                    ) { $0.sources = result.sources }
+                    currentState.setSources(result.sources)
+                }
+            }
+        }
 
         while true {
             guard !Task.isCancelled else { break }
