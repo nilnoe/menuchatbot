@@ -39,7 +39,6 @@ final class DelayedStreamingURLProtocol: URLProtocol {
     /// 返回 (响应, 分片列表, 分片间隔秒)。第一片立即投递，后续按间隔延迟。
     static var handler: ((URLRequest) throws -> (HTTPURLResponse, [String], TimeInterval))?
 
-    private var pendingWork: [DispatchWorkItem] = []
     private var finished = false
 
     override class func canInit(with request: URLRequest) -> Bool {
@@ -56,29 +55,36 @@ final class DelayedStreamingURLProtocol: URLProtocol {
             return
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        for (index, chunk) in chunks.enumerated() {
-            let item = DispatchWorkItem { [weak self] in
-                guard let self, !self.finished else { return }
-                self.client?.urlProtocol(self, didLoad: Data(chunk.utf8))
-                if index == chunks.count - 1 {
-                    self.finished = true
-                    self.client?.urlProtocolDidFinishLoading(self)
-                }
-            }
-            pendingWork.append(item)
-            if index == 0 {
-                item.perform()
-            } else {
-                DispatchQueue.global().asyncAfter(
-                    deadline: .now() + delay * Double(index), execute: item)
-            }
-        }
+        deliverChunks(chunks, delay: delay, at: 0)
     }
 
     override func stopLoading() {
         // 取消时立即终止等待，保证流式任务快速收尾（而非等完所有延迟分片）。
         guard !finished else { return }
-        pendingWork.forEach { $0.cancel() }
+        // 置位后，链式投递中已调度但尚未执行的下一片会直接放弃。
+        finished = true
         client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
+    }
+
+    /// 链式投递：每片投递完才调度下一片（固定间隔），保证分片严格有序。
+    /// 若为每个分片各自 asyncAfter 到全局并发队列，慢机负载下多片可能并行，
+    /// [DONE] 先于 usage 等末尾事件到达会让客户端提前 return，丢掉后续事件。
+    private func deliverChunks(_ chunks: [String], delay: TimeInterval, at index: Int) {
+        guard !finished else { return }
+        guard index < chunks.count else {
+            finished = true
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, !self.finished else { return }
+            self.client?.urlProtocol(self, didLoad: Data(chunks[index].utf8))
+            self.deliverChunks(chunks, delay: delay, at: index + 1)
+        }
+        if index == 0 {
+            item.perform()
+        } else {
+            DispatchQueue.global().asyncAfter(deadline: .now() + delay, execute: item)
+        }
     }
 }
