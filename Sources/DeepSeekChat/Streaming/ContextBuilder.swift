@@ -49,7 +49,9 @@ struct ContextBuilder {
     ) -> [APIMessage] {
         guard !messages.isEmpty else { return [] }
         var startIndex = 0
-        while startIndex < messages.count - 1, estimateTotal(messages[startIndex...]) > tokenBudget {
+        while startIndex < messages.count - 1,
+            estimateTotal(messages[startIndex...]) > tokenBudget
+        {
             startIndex += 1
         }
         return Array(messages[startIndex...])

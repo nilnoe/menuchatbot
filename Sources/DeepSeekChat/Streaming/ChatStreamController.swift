@@ -21,6 +21,10 @@ final class ChatStreamController: ObservableObject {
 
     /// 统一上下文预算：历史截断等由 ContextBuilder 负责（Tier 1 第二批）。
     private let contextBuilder: ContextBuilder
+    /// 工具注册表（T2-3）：nil 表示未装配，工具调用不启用。
+    private let toolRegistry: ToolRegistry?
+    /// 工具调用轮次上限（ADR-0006 D3）。
+    private let maxToolRounds: Int
 
     private var streamTask: Task<Void, Never>?
     private let sessionStore: SessionStoring
@@ -32,6 +36,8 @@ final class ChatStreamController: ObservableObject {
         sessionStore: SessionStoring,
         settings: SettingsStore,
         contextBuilder: ContextBuilder = ContextBuilder(),
+        toolRegistry: ToolRegistry? = nil,
+        maxToolRounds: Int = AppConfiguration.defaultMaxToolRounds,
         makeClient: @escaping @MainActor (String, String) -> DeepSeekClient = {
             DeepSeekClient(baseURL: $1, apiKey: $0)
         }
@@ -39,6 +45,8 @@ final class ChatStreamController: ObservableObject {
         self.sessionStore = sessionStore
         self.settings = settings
         self.contextBuilder = contextBuilder
+        self.toolRegistry = toolRegistry
+        self.maxToolRounds = maxToolRounds
         self.makeClient = makeClient
     }
 
@@ -90,12 +98,17 @@ final class ChatStreamController: ObservableObject {
         streamTask?.cancel()
         streamTask = Task { [weak self] in
             guard let self else { return }
-            await self.runStream(sessionID: sessionID, state: assistantState, history: history)
+            let finalState = await self.runStream(
+                sessionID: sessionID,
+                history: history,
+                canSearch: canSearch,
+                firstState: assistantState
+            )
             // 收尾清理前先确认流式状态仍属于本任务：
             // 用户停止后旧任务可能仍在异步收尾，此时若已发起新一轮流式，
             // 直接清 nil 会把新任务的流式状态覆盖掉，导致新回复失去
             // isStreaming 标记 → 走最终 Markdown 路径 → 每分片全文重解析 → 长回复卡死空白。
-            if self.streamingSessionID == sessionID, self.streamingState === assistantState {
+            if self.streamingSessionID == sessionID, self.streamingState === finalState {
                 self.streamingSessionID = nil
                 self.streamingState = nil
             }
@@ -127,9 +140,105 @@ final class ChatStreamController: ObservableObject {
     @MainActor
     private func runStream(
         sessionID: UUID,
+        history: [APIMessage],
+        canSearch: Bool,
+        firstState: MessageState
+    ) async -> MessageState {
+        let enabledTools = enabledToolDefinitions()
+        var currentHistory = history
+        var currentState = firstState
+        var round = 0
+        var limitMessageSent = false
+
+        while true {
+            guard !Task.isCancelled else { break }
+            let toolCalls = await streamRound(
+                sessionID: sessionID,
+                state: currentState,
+                history: currentHistory,
+                canSearch: canSearch,
+                tools: enabledTools
+            )
+            // nil = 出错 / 取消（streamRound 内部已提交并标记错误）。
+            guard let toolCalls else { break }
+
+            if !toolCalls.isEmpty {
+                // 把工具调用附到已落库的 assistant 消息上（透明展示 + 回传 API）。
+                let messageID = currentState.id
+                sessionStore.updateMessage(sessionID: sessionID, messageID: messageID) {
+                    $0.toolCalls = toolCalls.map {
+                        ChatToolCall(
+                            id: $0.id, name: $0.function.name, arguments: $0.function.arguments)
+                    }
+                }
+                currentState.toolCalls = toolCalls.map {
+                    ChatToolCall(
+                        id: $0.id, name: $0.function.name, arguments: $0.function.arguments)
+                }
+            }
+            currentHistory.append(
+                APIMessage(
+                    role: "assistant",
+                    content: currentState.content,
+                    toolCalls: toolCalls
+                )
+            )
+
+            // 无工具调用 = 本轮已给出最终答案。
+            if toolCalls.isEmpty { break }
+
+            round += 1
+            if round > maxToolRounds {
+                // 超过轮次上限：不再执行工具，提示模型直接作答（T2-3b）。
+                if limitMessageSent { break }
+                let note = "工具调用轮次已达上限（\(maxToolRounds)），请基于已有信息直接给出最终答案。"
+                appendToolMessage(
+                    sessionID: sessionID,
+                    id: "round-limit-\(round)",
+                    name: "system",
+                    content: note,
+                    to: &currentHistory
+                )
+                limitMessageSent = true
+                // 提示语先落库，再开新一轮 assistant 消息，保证最终答案排在提示语之后。
+                let nextMessage = ChatMessage(role: .assistant, content: "", isSearching: canSearch)
+                sessionStore.appendMessage(sessionID: sessionID, nextMessage)
+                currentState = sessionStore.messageState(for: nextMessage)
+                streamingState = currentState
+                continue
+            }
+
+            for call in toolCalls {
+                guard !Task.isCancelled else { break }
+                let summary = await executeTool(call, sessionID: sessionID)
+                appendToolMessage(
+                    sessionID: sessionID,
+                    id: call.id,
+                    name: call.function.name,
+                    content: summary,
+                    to: &currentHistory
+                )
+            }
+            guard !Task.isCancelled else { break }
+
+            // 准备下一轮 assistant 消息。
+            let nextMessage = ChatMessage(role: .assistant, content: "", isSearching: canSearch)
+            sessionStore.appendMessage(sessionID: sessionID, nextMessage)
+            currentState = sessionStore.messageState(for: nextMessage)
+            streamingState = currentState
+        }
+        return currentState
+    }
+
+    /// 单轮流式：40ms 聚合节流 + 一次 API 调用；返回本轮工具调用（nil = 出错 / 取消）。
+    @MainActor
+    private func streamRound(
+        sessionID: UUID,
         state: MessageState,
-        history: [APIMessage]
-    ) async {
+        history: [APIMessage],
+        canSearch: Bool,
+        tools: [ToolDefinition]
+    ) async -> [APIToolCall]? {
         // 分片节流：增量先进缓冲，每 40ms 聚合提交一次 UI 与存储，
         // 把 SwiftUI 全文重排次数从“每个 token”降到 ~25 次/秒。
         let flushTask = Task { [weak self] in
@@ -158,10 +267,10 @@ final class ChatStreamController: ObservableObject {
             sessionStore.commitMessage(state, sessionID: sessionID)
         }
 
+        var pendingToolCalls: [APIToolCall] = []
         let client = makeClient(settings.apiKey, settings.activeBaseURL)
         let model = settings.model
         let modelInfo = settings.modelInfo(for: model)
-        let canSearch = settings.webSearch && modelInfo.supportsResponses
 
         let callbacks = StreamCallbacks(
             onDelta: { chunk in
@@ -169,6 +278,9 @@ final class ChatStreamController: ObservableObject {
             },
             onReasoning: { chunk in
                 state.appendReasoning(chunk)
+            },
+            onToolCallsFinished: { calls in
+                pendingToolCalls = calls
             },
             onSearching: {
                 state.setSearching(true)
@@ -208,15 +320,74 @@ final class ChatStreamController: ObservableObject {
                     systemPrompt: settings.systemPrompt,
                     temperature: settings.temperature,
                     isCustomProvider: modelInfo.isCustom,
+                    tools: tools,
                     callbacks: callbacks
                 )
             }
         } catch is CancellationError {
-            return
+            return nil
         } catch let error as URLError where error.code == .cancelled {
-            return
+            return nil
         } catch {
             state.setError(error.localizedDescription)
+            return nil
         }
+        return pendingToolCalls
+    }
+
+    /// 当前设置下启用的工具清单（注册表 ∩ 设置开关）。
+    private func enabledToolDefinitions() -> [ToolDefinition] {
+        guard let toolRegistry else { return [] }
+        return toolRegistry.availableTools.filter { tool in
+            switch tool.tier {
+            case .calculator:
+                return settings.toolCalculatorEnabled
+            case .readFile:
+                return settings.toolReadFileEnabled
+            case .python:
+                return settings.toolPythonEnabled
+            }
+        }
+    }
+
+    /// 执行一次工具调用，返回写入会话历史的结果摘要（T2-3c 透明展示）。
+    private func executeTool(_ call: APIToolCall, sessionID: UUID) async -> String {
+        guard let executor = toolRegistry?.executor(for: call.function.name) else {
+            return "错误：工具 \(call.function.name) 未注册"
+        }
+        let request = ToolExecutionRequest(
+            toolName: call.function.name,
+            argumentsJSON: call.function.arguments,
+            sessionID: sessionID
+        )
+        do {
+            let result = try await executor.execute(request)
+            if result.success {
+                return "结果：\(result.output)"
+            }
+            return "执行失败：\(result.errorMessage ?? "未知错误")"
+        } catch {
+            return "执行异常：\(error.localizedDescription)"
+        }
+    }
+
+    /// 追加一条 tool 角色消息（历史 + 会话），保证下一轮 API 请求可回传。
+    private func appendToolMessage(
+        sessionID: UUID,
+        id: String,
+        name: String,
+        content: String,
+        to history: inout [APIMessage]
+    ) {
+        let message = ChatMessage(
+            role: .tool,
+            content: content,
+            toolCallID: id,
+            toolName: name
+        )
+        sessionStore.appendMessage(sessionID: sessionID, message)
+        history.append(
+            APIMessage(role: "tool", content: content, toolCallID: id, name: name)
+        )
     }
 }

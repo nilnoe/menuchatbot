@@ -35,7 +35,10 @@ final class ContextBuilderTests: XCTestCase {
 
     func testTruncationKeepsNewestWithinBudget() {
         let history = (0..<20).map { index in
-            message(index.isMultiple(of: 2) ? "user" : "assistant", "第\(index)条：\(String(repeating: "长", count: 20))")
+            message(
+                index.isMultiple(of: 2) ? "user" : "assistant",
+                "第\(index)条：\(String(repeating: "长", count: 20))"
+            )
         }
         let result = builder.buildHistory(history, tokenBudget: 100)
         XCTAssertFalse(result.isEmpty)

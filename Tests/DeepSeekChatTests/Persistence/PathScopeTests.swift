@@ -54,7 +54,12 @@ final class PathScopeTests: XCTestCase {
     }
 
     func testRootDirectoryRejected() {
-        XCTAssertFalse(PathScope.isContained(URL(fileURLWithPath: "/etc/passwd"), in: URL(fileURLWithPath: "/")))
+        XCTAssertFalse(
+            PathScope.isContained(
+                URL(fileURLWithPath: "/etc/passwd"),
+                in: URL(fileURLWithPath: "/")
+            )
+        )
     }
 
     func testContainedInAnyRoot() {

@@ -3,12 +3,22 @@ import Foundation
 enum Role: String, Codable, Equatable {
     case user
     case assistant
+    /// 工具执行结果消息（T2-3：透明展示，写入会话历史）。
+    case tool
 }
 
 struct Source: Codable, Equatable, Hashable, Identifiable {
     var title: String?
     var url: String
     var id: String { url }
+}
+
+/// 会话内工具调用（assistant 消息上，用于透明展示与回传 API）。
+struct ChatToolCall: Codable, Equatable, Identifiable {
+    var id: String
+    var name: String
+    /// 参数 JSON 文本。
+    var arguments: String
 }
 
 struct ChatMessage: Codable, Equatable, Identifiable {
@@ -19,6 +29,12 @@ struct ChatMessage: Codable, Equatable, Identifiable {
     var sources: [Source]?
     /// 该回复的 token 用量（assistant 消息流式结束后由 API 返回）。
     var usage: TokenUsage?
+    /// assistant 消息发起的工具调用（透明展示，T2-3c）。
+    var toolCalls: [ChatToolCall]?
+    /// tool 角色消息：对应工具调用 ID。
+    var toolCallID: String?
+    /// tool 角色消息：工具名。
+    var toolName: String?
     var isSearching: Bool
     var isError: Bool
     var createdAt: Date
@@ -30,6 +46,9 @@ struct ChatMessage: Codable, Equatable, Identifiable {
         reasoning: String? = nil,
         sources: [Source]? = nil,
         usage: TokenUsage? = nil,
+        toolCalls: [ChatToolCall]? = nil,
+        toolCallID: String? = nil,
+        toolName: String? = nil,
         isSearching: Bool = false,
         isError: Bool = false,
         createdAt: Date = Date()
@@ -40,6 +59,9 @@ struct ChatMessage: Codable, Equatable, Identifiable {
         self.reasoning = reasoning
         self.sources = sources
         self.usage = usage
+        self.toolCalls = toolCalls
+        self.toolCallID = toolCallID
+        self.toolName = toolName
         self.isSearching = isSearching
         self.isError = isError
         self.createdAt = createdAt

@@ -75,6 +75,26 @@ extension SessionStore {
                 }
             }
         }
+        // v5：message 表补充工具调用列（toolCallsJSON / toolCallID / toolName），
+        // 工具调用循环的透明展示与历史回传（T2-3）。
+        migrator.registerMigration("v5") { db in
+            let messageColumns = try db.columns(in: "message").map(\.name)
+            if !messageColumns.contains("toolCallsJSON") {
+                try db.alter(table: "message") { t in
+                    t.add(column: "toolCallsJSON", .text)
+                }
+            }
+            if !messageColumns.contains("toolCallID") {
+                try db.alter(table: "message") { t in
+                    t.add(column: "toolCallID", .text)
+                }
+            }
+            if !messageColumns.contains("toolName") {
+                try db.alter(table: "message") { t in
+                    t.add(column: "toolName", .text)
+                }
+            }
+        }
         return migrator
     }
 }

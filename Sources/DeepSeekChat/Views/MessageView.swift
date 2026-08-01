@@ -28,6 +28,8 @@ struct MessageView: View {
         HStack(alignment: .top, spacing: 8) {
             if state.role == .user {
                 Spacer(minLength: 48)
+            } else if state.role == .tool {
+                Spacer(minLength: 24)
             } else {
                 assistantAvatar
             }
@@ -35,6 +37,9 @@ struct MessageView: View {
             VStack(alignment: state.role == .user ? .trailing : .leading, spacing: 6) {
                 if state.role == .assistant, let modelLabel {
                     modelBadge(modelLabel)
+                }
+                if let toolCalls = state.toolCalls, !toolCalls.isEmpty {
+                    toolCallsView(toolCalls)
                 }
                 if let reasoning = state.reasoning, !reasoning.isEmpty {
                     reasoningGroup(reasoning)
@@ -77,6 +82,8 @@ struct MessageView: View {
 
             if state.role == .assistant {
                 Spacer(minLength: 48)
+            } else if state.role == .tool {
+                Spacer(minLength: 24)
             } else {
                 userAvatar
             }
@@ -103,9 +110,14 @@ struct MessageView: View {
         if state.isError {
             return Color.red.opacity(0.06)
         }
-        return state.role == .user
-            ? Color.accentColor
-            : Color(nsColor: .controlBackgroundColor)
+        switch state.role {
+        case .user:
+            return Color.accentColor
+        case .tool:
+            return Color(nsColor: .controlBackgroundColor).opacity(0.55)
+        case .assistant:
+            return Color(nsColor: .controlBackgroundColor)
+        }
     }
 
     private var bubbleStroke: Color {
@@ -177,7 +189,9 @@ struct MessageView: View {
 
     @ViewBuilder
     private var contentView: some View {
-        if state.isError {
+        if state.role == .tool {
+            toolResultView
+        } else if state.isError {
             VStack(alignment: .leading, spacing: 8) {
                 Label("出错了", systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: DesignTokens.FontSize.caption, weight: .semibold))
@@ -209,6 +223,51 @@ struct MessageView: View {
             ProgressView()
                 .controlSize(.small)
         }
+    }
+
+    /// 工具执行结果（T2-3 透明展示）：工具名 + 结果摘要，等宽字体。
+    private var toolResultView: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 5) {
+                Image(systemName: "wrench.and.screwdriver")
+                Text(state.toolName ?? "工具")
+                    .fontWeight(.medium)
+            }
+            .font(.system(size: DesignTokens.FontSize.caption))
+            .foregroundStyle(.secondary)
+            Text(state.content.isEmpty ? "（空结果）" : state.content)
+                .font(
+                    .system(
+                        size: DesignTokens.FontSize.body - 1,
+                        design: .monospaced
+                    )
+                )
+                .textSelection(.enabled)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// assistant 消息发起的工具调用清单。
+    private func toolCallsView(_ calls: [ChatToolCall]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(calls) { call in
+                HStack(spacing: 6) {
+                    Image(systemName: "wrench.and.screwdriver")
+                    Text("调用 \(call.name)")
+                        .fontWeight(.medium)
+                    Text(call.arguments.prefix(80))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .font(.system(size: DesignTokens.FontSize.caption, design: .monospaced))
+            }
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: DesignTokens.Corner.sm)
+                .fill(Color.secondary.opacity(0.07))
+        )
     }
 
     private var assistantContent: some View {

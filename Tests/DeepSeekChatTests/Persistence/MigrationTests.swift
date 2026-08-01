@@ -1,8 +1,7 @@
+import GRDB
 import XCTest
 
 @testable import DeepSeekChat
-
-import GRDB
 
 final class MigrationTests: XCTestCase {
     private var tempDir: URL!

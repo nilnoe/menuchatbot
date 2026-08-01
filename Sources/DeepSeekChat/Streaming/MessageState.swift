@@ -18,6 +18,10 @@ final class MessageState: ObservableObject, Identifiable {
     @Published private(set) var content: String
     @Published private(set) var reasoning: String?
     @Published var sources: [Source]?
+    /// assistant 消息发起的工具调用（透明展示，T2-3c）。
+    @Published var toolCalls: [ChatToolCall]?
+    /// tool 角色消息的工具名。
+    @Published var toolName: String?
     /// 流式结束后由 API 返回的 token 用量。
     @Published private(set) var usage: TokenUsage?
     @Published var isSearching: Bool
@@ -37,6 +41,8 @@ final class MessageState: ObservableObject, Identifiable {
         self.content = message.content
         self.reasoning = message.reasoning
         self.sources = message.sources
+        self.toolCalls = message.toolCalls
+        self.toolName = message.toolName
         self.usage = message.usage
         self.isSearching = message.isSearching
         self.isError = message.isError

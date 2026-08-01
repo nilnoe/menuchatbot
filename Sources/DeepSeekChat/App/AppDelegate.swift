@@ -1,4 +1,5 @@
 import AppKit
+import DeepSeekChatIndexing
 import SwiftUI
 
 /// 应用生命周期与装配（Composition Root）：
@@ -7,8 +8,22 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let sessionStore = SessionStore()
     private let settingsStore = SettingsStore()
+    /// 进程内工具注册表：当前仅注册 T0 计算器（其余分级随 Tier 3/4 落地）。
+    private lazy var toolRegistry: InProcessToolRegistry = {
+        let registry = InProcessToolRegistry()
+        try? registry.register(
+            CalculatorTool.definition,
+            executor: CalculatorToolExecutor(
+                service: RustCalculatorService()
+            )
+        )
+        return registry
+    }()
     private lazy var streamController = ChatStreamController(
-        sessionStore: sessionStore, settings: settingsStore)
+        sessionStore: sessionStore,
+        settings: settingsStore,
+        toolRegistry: toolRegistry
+    )
     private lazy var panelController = PanelController()
     private lazy var statusItemController = StatusItemController(
         panelVisible: { [weak self] in self?.panelController.panel.isVisible ?? false },

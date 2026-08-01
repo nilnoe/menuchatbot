@@ -37,4 +37,7 @@ enum AppConfiguration {
         static let toolReadFileEnabled = "toolReadFileEnabled"
         static let toolPythonEnabled = "toolPythonEnabled"
     }
+
+    /// 工具调用循环轮次上限（ADR-0006 D3：每轮对话工具调用 ≤ N 次）。
+    static let defaultMaxToolRounds = 3
 }

@@ -19,6 +19,8 @@ protocol SessionStoring: MessageSynchronizing {
     func renameSession(id: UUID, title: String)
     func appendMessage(sessionID: UUID, _ message: ChatMessage)
     func removeMessage(sessionID: UUID, messageID: UUID)
+    /// 就地更新一条已持久化消息（如流式结束后补写 toolCalls）。
+    func updateMessage(sessionID: UUID, messageID: UUID, _ mutate: (inout ChatMessage) -> Void)
     func history(for id: UUID) -> [APIMessage]
     func messageState(for message: ChatMessage) -> MessageState
 }

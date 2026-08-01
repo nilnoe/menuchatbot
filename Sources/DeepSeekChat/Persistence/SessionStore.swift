@@ -372,8 +372,25 @@ final class SessionStore: ObservableObject {
 
     func history(for id: UUID) -> [APIMessage] {
         messages(for: id)
-            .filter { !$0.content.isEmpty }
-            .map { APIMessage(role: $0.role.rawValue, content: $0.content) }
+            // 纯工具调用消息可能没有正文，但必须回传（否则 API 拒绝后续 tool 消息）。
+            .filter { !$0.content.isEmpty || !($0.toolCalls?.isEmpty ?? true) }
+            .map { message in
+                APIMessage(
+                    role: message.role.rawValue,
+                    content: message.content,
+                    toolCalls: message.toolCalls?.map { call in
+                        APIToolCall(
+                            id: call.id,
+                            function: APIFunctionCall(
+                                name: call.name,
+                                arguments: call.arguments
+                            )
+                        )
+                    },
+                    toolCallID: message.toolCallID,
+                    name: message.toolName
+                )
+            }
     }
 
     // MARK: - 导入 / 导出
@@ -394,10 +411,12 @@ final class SessionStore: ObservableObject {
     /// 导出直接读库（不依赖内存缓存），保证与持久化内容一致。
     private func allSessionsFromDB() throws -> [ChatSession] {
         try dbQueue.read { db in
-            let sessionRecords = try SessionRecord
+            let sessionRecords =
+                try SessionRecord
                 .order(Column("createdAt").desc, Column("rowid").desc)
                 .fetchAll(db)
-            let messageRecords = try MessageRecord
+            let messageRecords =
+                try MessageRecord
                 .order(Column("position"), Column("rowid"))
                 .fetchAll(db)
             let messagesBySession = Dictionary(grouping: messageRecords, by: \.sessionID)
@@ -419,7 +438,8 @@ final class SessionStore: ObservableObject {
             guard let record = try SessionRecord.fetchOne(db, key: id.uuidString) else {
                 return nil
             }
-            let messages = try MessageRecord
+            let messages =
+                try MessageRecord
                 .filter(Column("sessionID") == id.uuidString)
                 .order(Column("position"), Column("rowid"))
                 .fetchAll(db)
@@ -695,6 +715,11 @@ final class SessionStore: ObservableObject {
             usageJSON: message.usage.flatMap { usage in
                 (try? JSONEncoder().encode(usage)).flatMap { String(data: $0, encoding: .utf8) }
             },
+            toolCallsJSON: message.toolCalls.flatMap { calls in
+                (try? JSONEncoder().encode(calls)).flatMap { String(data: $0, encoding: .utf8) }
+            },
+            toolCallID: message.toolCallID,
+            toolName: message.toolName,
             isSearching: message.isSearching,
             isError: message.isError,
             createdAt: message.createdAt,

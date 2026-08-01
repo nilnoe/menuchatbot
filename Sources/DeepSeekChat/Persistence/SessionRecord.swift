@@ -25,6 +25,12 @@ struct MessageRecord: Codable, FetchableRecord, MutablePersistableRecord, TableR
     var reasoning: String?
     var sourcesJSON: String?
     var usageJSON: String?
+    /// 工具调用 JSON（assistant 消息；T2-3 透明展示 + 回传 API）。
+    var toolCallsJSON: String?
+    /// tool 角色消息：对应工具调用 ID。
+    var toolCallID: String?
+    /// tool 角色消息：工具名。
+    var toolName: String?
     var isSearching: Bool
     var isError: Bool
     var createdAt: Date
@@ -39,7 +45,7 @@ struct MessageRecord: Codable, FetchableRecord, MutablePersistableRecord, TableR
     var chatMessage: ChatMessage {
         ChatMessage(
             id: UUID(uuidString: id) ?? UUID(),
-            role: role == "user" ? .user : .assistant,
+            role: role == "user" ? .user : (role == "tool" ? .tool : .assistant),
             content: content,
             reasoning: reasoning,
             sources: sourcesJSON.flatMap { json in
@@ -48,6 +54,11 @@ struct MessageRecord: Codable, FetchableRecord, MutablePersistableRecord, TableR
             usage: usageJSON.flatMap { json in
                 try? JSONDecoder().decode(TokenUsage.self, from: Data(json.utf8))
             },
+            toolCalls: toolCallsJSON.flatMap { json in
+                try? JSONDecoder().decode([ChatToolCall].self, from: Data(json.utf8))
+            },
+            toolCallID: toolCallID,
+            toolName: toolName,
             isSearching: isSearching,
             isError: isError,
             createdAt: createdAt

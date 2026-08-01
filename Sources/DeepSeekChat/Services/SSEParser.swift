@@ -50,6 +50,16 @@ enum SSEParser {
         if let reasoning = delta["reasoning_content"] as? String, !reasoning.isEmpty {
             callbacks.onReasoning(reasoning)
         }
+        if let toolCalls = delta["tool_calls"] as? [[String: Any]] {
+            for call in toolCalls {
+                guard let index = call["index"] as? Int else { continue }
+                guard let function = call["function"] as? [String: Any] else { continue }
+                let id = call["id"] as? String
+                let name = function["name"] as? String
+                let arguments = (function["arguments"] as? String) ?? ""
+                callbacks.onToolCallDelta(index, id, name, arguments)
+            }
+        }
     }
 
     @discardableResult
