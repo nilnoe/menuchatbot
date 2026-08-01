@@ -252,6 +252,10 @@
   Persistence / Streaming / Views / App）、流式编排抽离 ChatStreamController、
   SessionStoring 协议收窄、AppConfiguration 常量收敛；
   分步计划与验收见 [docs/REFACTORING.md](docs/REFACTORING.md)
+- [x] 测试模块化 Phase A（refactor/test-modularization，2026-08）：Tests 目录
+  镜像 Sources 分层、大文件按行为面拆分、Support 接口层 + TESTING.md 手册；
+  Phase B（多测试 target + TestSupport 模块）与 Phase C（生产代码拆库）的
+  规划与触发条件见 [docs/TESTING_ROADMAP.md](docs/TESTING_ROADMAP.md)
 
 ---
 

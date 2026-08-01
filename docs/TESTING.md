@@ -94,3 +94,6 @@
 - 届时 §3 的 API 清单就是 `public` 化的候选清单，接口由编译器强制；
 - 建议触发条件：全量测试超过约 5 分钟，或单 target 测试文件超过约 60 个。
   触发前保持单 target，不为假想规模引入复杂度。
+
+完整的分阶段规划（Phase A 已完成、B / C 的步骤与触发条件）见
+[docs/TESTING_ROADMAP.md](TESTING_ROADMAP.md)。

@@ -120,8 +120,9 @@ menuchatbot/
 接口隔离约定见 [PROJECT_SPEC.md](PROJECT_SPEC.md) §3.1；重构过程与
 决策记录见 [docs/REFACTORING.md](docs/REFACTORING.md) 与
 [docs/decisions](docs/decisions/)；测试策略与测试支持 API 手册见
-[docs/TESTING.md](docs/TESTING.md)；macOS SwiftUI 交互踩坑记录见
-[docs/PITFALLS.md](docs/PITFALLS.md)。
+[docs/TESTING.md](docs/TESTING.md)，测试模块化分阶段规划见
+[docs/TESTING_ROADMAP.md](docs/TESTING_ROADMAP.md)；macOS SwiftUI 交互踩坑
+记录见 [docs/PITFALLS.md](docs/PITFALLS.md)。
 
 ## 数据与安全
 
