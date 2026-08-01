@@ -155,6 +155,36 @@ streamingState` 清成 nil，新回复失去流式标记，长输出按最终路
 `streamingState === 本次 state`）；再给消息自身维护 `isStreaming` 标记兜底，
 行内渲染不依赖可能被覆盖的外部状态。
 
+### 4.5 `URL.resolvingSymlinksInPath()` 只对已存在的完整路径生效
+
+**现象**：`PathScope` 的 symlink 逃逸测试
+（`root/link/secret.txt`，`link` 是指向根目录外目录的符号链接）用
+`resolvingSymlinksInPath()` 做包含判断时**放行**，误判为"仍在根目录内"。
+
+**根因**：`resolvingSymlinksInPath()` 只在**最终路径存在**时解析 symlink；
+当目标文件尚不存在（纯路径包含检查、未真正读取前）时，路径前缀里的目录
+symlink 不被解析，返回字面路径。
+
+**规避**：先对「最长存在的祖先」解析 symlink，再把剩余组件拼回，最后做
+前缀包含判断：
+
+```swift
+var probe = url.standardizedFileURL
+var suffix: [String] = []
+while !FileManager.default.fileExists(atPath: probe.path) {
+    suffix.insert(probe.lastPathComponent, at: 0)
+    probe.deleteLastPathComponent()
+}
+let resolved = probe.resolvingSymlinksInPath().path
+    + (suffix.isEmpty ? "" : "/" + suffix.joined(separator: "/"))
+```
+
+`PathScope.canonicalized(_:)` 即此实现；`PathScopeTests` 覆盖 `..` 逃逸、
+symlink 逃逸、根目录拒绝（ACCEPTANCE T4-1b 的前置契约）。
+
+**教训**：路径安全逻辑不能依赖"路径存在时才正确"的系统 API；先用真实
+目录 + symlink 做 shell 实验锁定 API 行为，再写实现。
+
 ## 5. 窗口与面板
 
 ### 5.1 NSPanel autosave 把窗口拽窄后无法恢复
@@ -213,6 +243,34 @@ SwiftUI 按钮在 xctest 环境（窗口非 key、应用未激活）不响应合
 - **数据目录隔离**：测试用 `mv` 移走真实数据目录时，若目标已存在同名目录，
   `mv` 会嵌套而不是覆盖，多次运行会产生深层嵌套。先删除目标再移入，或
   每次用带时间戳的新目录名。
+
+### 6.4 AsyncStream 测试时序：消费者挂上前的发布会被缓冲
+
+**现象**：`SessionStoreIndexEventTests` 里，`AsyncStream` 会把消费者挂上
+之前 `yield` 的事件全部缓冲——测试因此拿到 setup 阶段的旧事件；改用
+"先 drain 再收集"的写法时，drain 的 `for await` 在 `Task.cancel()` 后
+**不会退出**（AsyncStream 迭代不检查取消），把被测事件也吃掉，收集结果
+恒为空。
+
+**根因**：AsyncStream 无界缓冲 + 多消费者语义不确定；
+`Task.cancel()` 不会中断 `for await` 循环。
+
+**规避**：让**所有被测操作都发生在收集窗口内**——先启动消费者 Task，
+再执行操作，最后 sleep 等事件到达再 cancel：
+
+```swift
+var events: [IndexEvent] = []
+let task = Task { for await event in store.indexEvents { events.append(event) } }
+try? await Task.sleep(for: .milliseconds(20))
+body()   // 被测操作全部放在这里
+try? await Task.sleep(for: .milliseconds(50))
+task.cancel()
+```
+
+不要断言 setup 阶段的事件，也不要试图"排空后再收集"（drain 停不下来）。
+
+**教训**：AsyncStream 的"先发布后消费"语义适合生产（不丢事件），不适合
+直接做测试断言；测试要显式控制事件窗口。
 
 ## 7. 排查心法
 
