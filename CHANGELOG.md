@@ -29,6 +29,9 @@
   `reasoning_effort`）。新增 ADR-0004~0007 与
   [docs/DESIGN_RUST_CORE.md](docs/DESIGN_RUST_CORE.md)，TODO 新增
   「Rust 核心与 AI 能力规划」并按实现难度分层（先易后难）。
+- **重构评估定稿（纯文档）**：新增 [ADR-0008](docs/decisions/0008-refactor-assessment.md)
+  明确「结构不重构、数据与接口地基先行、target 拆分后置」；TODO Tier 1
+  调整为「第一批数据地基 → 第二批接口地基」并补齐验收标准。
 
 ## [0.3.0] - 2026-08-01
 

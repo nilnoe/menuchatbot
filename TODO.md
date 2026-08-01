@@ -263,17 +263,28 @@
 
 ### Tier 1｜地基（纯 Swift，低难度，可先行）
 
+**第一批｜数据地基**（ADR-0008 D2）
+
+- [ ] SessionStore 拆分 SessionSummary 与消息分页（侧栏不再持有消息正文，
+  token 合计列化，消除每行 reduce；同时消除启动全量物化）
+- [ ] 消息表派生列：tokenTotal / contentHash / indexVersion（GRDB migration）
+- [ ] 流式存储写放大修复（存储降频 + 后台写队列）+ messageStates LRU 上限
+- [ ] 性能基线扩展：启动 10k 消息、流式存储吞吐、侧栏渲染不随消息数线性
+  变慢（XCTMeasure）
+
+**第二批｜接口地基**（ADR-0008 D3）
+
 - [ ] ContextBuilder：统一上下文预算（历史截断 + RAG 注入 + 工具结果记账），
   禁止各模块自行拼上下文
+- [ ] IndexEventPublishing：SessionStore → 索引协调的事件发布协议
+- [ ] ToolRegistry / ToolExecutor 协议：工具注册与执行契约（实现随 Tier 2）
 - [ ] 设置数据模型扩展：命名资料库列表（名称 / 路径 / 开关）、长时推演时长、
   工具开关（SettingsStore + 设置页）
 - [ ] 路径授权基建：NSOpenPanel 选目录 + security-scoped bookmark 持久化 +
   规范化 / symlink 防逃逸的路径包含检查（TCC 行为按目标 macOS 实测）
-- [ ] SessionStore 拆分 SessionSummary 与消息分页（侧栏不再持有消息正文，
-  token 合计列化，消除每行 reduce）
-- [ ] 消息表派生列：tokenTotal / contentHash / indexVersion（GRDB migration）
-- [ ] 流式存储写放大修复（存储降频 + 后台写队列）+ messageStates LRU 上限
-- [ ] 性能基线扩展：启动 10k 消息、流式存储吞吐（XCTMeasure）
+
+**验收标准**（ADR-0008 D5）：行为不变（swift test ≥191 全绿）；新增性能
+基线；依赖方向单向；每批独立提交、可回滚。
 
 ### Tier 2｜Rust 骨架与工具链（中低难度，打通即闭环）
 

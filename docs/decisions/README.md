@@ -12,3 +12,4 @@
 | [0005](0005-local-library-rag.md) | 本地资料库 RAG | 已接受（2026-08-01，方向定稿） | TODO「Rust 核心与 AI 能力规划」 |
 | [0006](0006-mcp-tool-host.md) | MCP 兼容本地工具宿主 | 已接受（2026-08-01，方向定稿） | TODO「Rust 核心与 AI 能力规划」 |
 | [0007](0007-extended-deliberation.md) | 长时推演模式 | 已接受（2026-08-01，方向定稿） | TODO「Rust 核心与 AI 能力规划」 |
+| [0008](0008-refactor-assessment.md) | 重构评估与执行顺序（数据瓶颈 + 接口边界） | 已接受（2026-08-01） | TODO Tier 1 |

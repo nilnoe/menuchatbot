@@ -39,7 +39,7 @@
 
 ### 决策记录（已接受）
 
-- [decisions/README.md](decisions/README.md) —— ADR 索引（0001~0007）。
+- [decisions/README.md](decisions/README.md) —— ADR 索引（0001~0008）。
 
 ### 历史记录（归档，仅参考，不随现状改写）
 
