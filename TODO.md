@@ -62,10 +62,12 @@
   （append / update / commit / delete / 导入发布，流式中间写回不发布）
 - [x] ToolRegistry / ToolExecutor 协议：工具注册与执行契约（分级 T0~T2，
   进程内注册表已落地；执行器实现随 Tier 2）
-- [ ] 设置数据模型扩展：命名资料库列表（名称 / 路径 / 开关）、长时推演时长、
-  工具开关（SettingsStore + 设置页）
-- [ ] 路径授权基建：NSOpenPanel 选目录 + security-scoped bookmark 持久化 +
-  规范化 / symlink 防逃逸的路径包含检查（TCC 行为按目标 macOS 实测）
+- [x] 设置数据模型扩展：命名资料库（名称 / 路径 / 开关 / bookmark）、长时
+  推演时长档位、工具开关（SettingsStore + 设置页「本地资料库 / AI 能力」
+  分区）
+- [x] 路径授权基建：NSOpenPanel 选目录 + security-scoped bookmark 持久化 +
+  PathScope 规范化 / symlink 防逃逸包含检查（含"最长存在祖先"解析；
+  TCC 行为按目标 macOS 实测）
 
 **验收标准**（ADR-0008 D5）：行为不变（swift test ≥191 全绿）；新增性能
 基线；依赖方向单向；每批独立提交、可回滚。逐条可测量验收标准见

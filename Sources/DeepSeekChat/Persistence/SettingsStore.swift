@@ -86,6 +86,49 @@ final class SettingsStore: ObservableObject {
             )
         }
     }
+    /// 命名资料库列表（名称 / 路径 / 开关 / 授权 bookmark）。
+    @Published var corpora: [LibraryCorpus] {
+        didSet {
+            if let data = try? JSONEncoder().encode(corpora) {
+                defaults.set(data, forKey: AppConfiguration.SettingsKey.corpora)
+            }
+        }
+    }
+    /// 长时推演时长档位（Tier 5 使用；默认 5 分钟）。
+    @Published var deliberationDuration: DeliberationDuration {
+        didSet {
+            defaults.set(
+                deliberationDuration.rawValue,
+                forKey: AppConfiguration.SettingsKey.deliberationDuration
+            )
+        }
+    }
+    /// 工具开关（ADR-0006 D2：T2 python 默认关闭；T1 read_file 默认关闭，
+    /// 待 Tier 4 沙箱与授权就绪后由用户开启）。
+    @Published var toolCalculatorEnabled: Bool {
+        didSet {
+            defaults.set(
+                toolCalculatorEnabled,
+                forKey: AppConfiguration.SettingsKey.toolCalculatorEnabled
+            )
+        }
+    }
+    @Published var toolReadFileEnabled: Bool {
+        didSet {
+            defaults.set(
+                toolReadFileEnabled,
+                forKey: AppConfiguration.SettingsKey.toolReadFileEnabled
+            )
+        }
+    }
+    @Published var toolPythonEnabled: Bool {
+        didSet {
+            defaults.set(
+                toolPythonEnabled,
+                forKey: AppConfiguration.SettingsKey.toolPythonEnabled
+            )
+        }
+    }
 
     private let defaults: UserDefaults
     private let keychain: KeychainStoring
@@ -134,6 +177,28 @@ final class SettingsStore: ObservableObject {
                     ?? ""
             )
             ?? .large
+        if let data = defaults.data(forKey: AppConfiguration.SettingsKey.corpora),
+            let decoded = try? JSONDecoder().decode([LibraryCorpus].self, from: data)
+        {
+            corpora = decoded
+        } else {
+            corpora = []
+        }
+        deliberationDuration =
+            DeliberationDuration(
+                rawValue:
+                    defaults.string(forKey: AppConfiguration.SettingsKey.deliberationDuration) ?? ""
+            )
+            ?? .minutes5
+        toolCalculatorEnabled =
+            defaults.object(forKey: AppConfiguration.SettingsKey.toolCalculatorEnabled) as? Bool
+            ?? true
+        toolReadFileEnabled =
+            defaults.object(forKey: AppConfiguration.SettingsKey.toolReadFileEnabled) as? Bool
+            ?? false
+        toolPythonEnabled =
+            defaults.object(forKey: AppConfiguration.SettingsKey.toolPythonEnabled) as? Bool
+            ?? false
         // 历史数据可能选中了已不存在的自定义模型，初始化后兜底一次。
         if !availableModels.contains(where: { $0.id == model }) {
             model = "deepseek-v4-flash"

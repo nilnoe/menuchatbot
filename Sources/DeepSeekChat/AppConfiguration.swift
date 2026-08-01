@@ -31,5 +31,10 @@ enum AppConfiguration {
         static let customBaseURL = "customBaseURL"
         static let customModels = "customModels"
         static let windowSizePreset = "windowSizePreset"
+        static let corpora = "corpora"
+        static let deliberationDuration = "deliberationDuration"
+        static let toolCalculatorEnabled = "toolCalculatorEnabled"
+        static let toolReadFileEnabled = "toolReadFileEnabled"
+        static let toolPythonEnabled = "toolPythonEnabled"
     }
 }

@@ -39,6 +39,8 @@ struct SettingsView: View {
                     modelSection
                     providerSection
                     conversationSection
+                    corpusSection
+                    aiToolsSection
                     windowSection
                     dataSection
                 }
@@ -254,6 +256,88 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    // MARK: - 本地资料库 / AI 能力（Tier 1 第二批）
+
+    private var corpusSection: some View {
+        Section("本地资料库") {
+            ForEach($settings.corpora) { $corpus in
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        TextField("资料库名称", text: $corpus.name)
+                            .textFieldStyle(.roundedBorder)
+                        Toggle("", isOn: $corpus.isEnabled)
+                            .labelsHidden()
+                            .help(corpus.isEnabled ? "启用" : "停用")
+                        Button {
+                            settings.corpora.removeAll { $0.id == corpus.id }
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.red)
+                    }
+                    Text(corpus.path)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+
+            Button(action: addCorpus) {
+                Label("添加目录…", systemImage: "plus.circle")
+            }
+            .buttonStyle(.borderless)
+
+            Text(
+                "AI 只检索这些目录内的文件（经系统授权）；目录外的资料不会被读取。检索到的内容会随请求发送给所选模型。"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private var aiToolsSection: some View {
+        Section("AI 能力") {
+            Toggle("计算器", isOn: $settings.toolCalculatorEnabled)
+            Toggle("读取资料库文件（只读）", isOn: $settings.toolReadFileEnabled)
+            Toggle("Python 脚本（沙箱）", isOn: $settings.toolPythonEnabled)
+            if settings.toolPythonEnabled {
+                Text("Python 在受限沙箱中运行（无网络、只读工作目录），请勿用于敏感脚本")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Picker("长时推演时长", selection: $settings.deliberationDuration) {
+                ForEach(DeliberationDuration.allCases) { duration in
+                    Text(duration.label).tag(duration)
+                }
+            }
+            Text("长时推演为可选深度思考模式（随 Tier 5 上线）；此处先保存时长偏好")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// 选择目录并持久化 security-scoped bookmark（TCC 首次授权）。
+    private func addCorpus() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "添加资料库目录"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let bookmark = SecurityScopedBookmark.make(for: url)
+        settings.corpora.append(
+            LibraryCorpus(
+                id: UUID(),
+                name: url.lastPathComponent,
+                path: url.path,
+                isEnabled: true,
+                bookmarkData: bookmark
+            )
+        )
     }
 
     private var windowSection: some View {

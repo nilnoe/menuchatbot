@@ -75,6 +75,13 @@
   shell）、`ToolDefinition`（MCP 风格 JSON Schema）、`ToolExecuting` /
   `ToolRegistry` 协议与进程内注册表（名称唯一、分级、查询）；执行器
   实现随 Tier 2。新增注册表测试 6 个（测试 222 → 228）。
+- **设置模型与路径授权（Tier 1 第二批，第三批）**：新增 `LibraryCorpus`
+  （命名资料库 + bookmark）与 `DeliberationDuration`（5/10/20/30 分钟）
+  领域模型；SettingsStore 增加 corpora / 推演时长 / 工具开关（计算器默认
+  开，只读文件与 Python 沙箱默认关）并持久化；新增 `PathScope` 路径包含
+  检查（`..` 与 symlink 逃逸拒绝、根目录拒绝、最长存在祖先解析）与
+  `SecurityScopedBookmark`；设置页新增「本地资料库 / AI 能力」分区
+  （目录选择经 NSOpenPanel + bookmark）。新增测试 11 个（测试 228 → 239）。
 
 ## [0.3.0] - 2026-08-01
 
