@@ -88,6 +88,11 @@
 
 ## 5. Tier 2｜Rust 骨架与工具链验收
 
+> **状态（2026-08-01）**：T2-1~T2-4 全部通过——swift test 272 全绿（含
+> 协议 6 + FFI 集成 5 + 工具循环 21 项新测试）、cargo test 29 全绿、
+> clippy / swift-format 零违规；test-degraded 路径（无 cargo → stub 库 +
+> FFI XCTSkip）在 CI 有独立 job 验证；依赖方向检查见 T2-1e。
+
 ### T2-1 RustCore 骨架 + 构建链
 
 | # | 验收标准 | 验证方式 |

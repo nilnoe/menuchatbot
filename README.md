@@ -18,7 +18,8 @@ DeepSeek Chat 是一个常驻在 macOS 菜单栏的 AI 聊天应用：
 
 - 不占 Dock、不常驻后台窗口，需要时点击菜单栏图标呼出，点外部自动收起
 - 对话由 **DeepSeek AI 模型**（`deepseek-v4-flash` / `deepseek-v4-pro`）驱动，支持思考模式与联网搜索
-- 整个应用是**纯原生 Swift 编写**，安装包不到 1MB，常驻内存约几十 MB，启动即用
+- **原生 Swift + Rust 核心**：Rust 以静态库并入主二进制（计算器 / 索引，
+  无运行时服务进程），release 主程序约 10MB，常驻内存约几十 MB，启动即用
 
 ## 功能特性
 
@@ -37,6 +38,8 @@ DeepSeek Chat 是一个常驻在 macOS 菜单栏的 AI 聊天应用：
   自定义模型自动省略 DeepSeek 专属参数 |
 | Token 用量与费用估算 | 每条回复显示输入 / 输出 / 缓存命中用量与费用估算，
   侧栏会话行累计展示 |
+| 计算器工具 | 开启后可让模型调用内置计算器（Rust 表达式求值，无子进程 /
+  无网络），每次调用透明展示工具名、参数与结果 |
 | API Key 安全存储 | 存于 macOS 钥匙串（Keychain），不上传、不写入代码 |
 | 窗口体验 | 统一系统表面风格；设置页可选 紧凑 70% / 标准 85% / 铺满 93%
   三档窗口大小（每次启动按档位生效），可缩放、可拖动 |
@@ -85,9 +88,15 @@ open "dist/DeepSeek Chat.app"
 
 ```bash
 swift build       # 编译开发版（.build/debug/DeepSeekChat）
-swift test        # 运行 191 个单元测试（含性能基线）
+swift test        # 运行 272 个单元测试（含性能基线）
 .build/debug/DeepSeekChat   # 启动开发版
 ```
+
+> Rust 核心（计算器 / 索引）以静态库形式链接进主二进制：正式构建与
+> `make-app.sh` 会自动先跑 `scripts/build-rust-core.sh`（release 双架构
+> universal；无 cargo 时自动降级为同 ABI stub 库，FFI 集成测试跳过，
+> 应用其余功能不受影响）。只跑 `swift test` 前如需真实 Rust 实现，先执行
+> `MODE=debug ./scripts/build-rust-core.sh`。
 
 ## 项目结构
 
@@ -101,22 +110,31 @@ DeepSeekChat/
 ├── PROJECT_SPEC.md            # 工程规范与架构约束
 ├── CONTRIBUTING.md            # 贡献指南
 ├── LICENSE                    # MIT 许可
+├── RustCore/                  # Rust 核心 crate（staticlib + C ABI）
+│   ├── src/                   #   json / eval（计算器）/ index / ffi
+│   ├── stub/                  #   无 cargo 时的同 ABI 降级实现
+│   └── tests/                 #   Rust 侧单测 / 集成测试
+├── scripts/build-rust-core.sh # Rust 静态库构建（cargo → lipo → 校验）
 ├── scripts/make-app.sh        # 一键构建脚本（编译 + 打包 .app）
 ├── docs/                      # 文档（地图入口见 docs/README.md）
-├── Sources/DeepSeekChat/
-│   ├── App/                   # 入口 + 装配（AppDelegate）、面板 /
-│   │                         #   状态栏图标 / 主菜单控制器
-│   ├── Domain/                # 领域模型：会话 / 消息 / 来源 / 导入导出 DTO
-│   ├── Services/              # 网络层（DeepSeekClient / SSEParser）、
-│   │                         #   ModelCatalog / MarkdownCache / ConnectionChecker
-│   ├── Persistence/           # SessionStore（仓储）、GRDB 记录、
-│   │                         #   SettingsStore / KeychainStore / 迁移
-│   ├── Streaming/             # MessageState（流式状态 + 增量缓冲）、
-│   │                         #   ChatStreamController（流式编排）
-│   ├── Views/                 # SwiftUI 界面（纯展示）
-│   ├── DeepSeekChatApp.swift  # @main 入口
-│   └── AppConfiguration.swift # 应用级常量单一入口
-└── Tests/DeepSeekChatTests/   # 191 个单元测试，镜像 Sources 分层
+├── Sources/
+│   ├── CRustCore/             # C target：手写头文件 rustcore.h
+│   ├── DeepSeekChatIndexing/  # IndexService 协议 + Rust / Mock 实现 +
+│   │                         #   CalculatorService
+│   └── DeepSeekChat/
+│       ├── App/               # 入口 + 装配（AppDelegate）、面板 /
+│       │                     #   状态栏图标 / 主菜单控制器
+│       ├── Domain/            # 领域模型：会话 / 消息 / 来源 / 导入导出 DTO
+│       ├── Services/          # 网络层（DeepSeekClient / SSEParser）、
+│       │                     #   ModelCatalog / MarkdownCache / ConnectionChecker
+│       ├── Persistence/       # SessionStore（仓储）、GRDB 记录、
+│       │                     #   SettingsStore / KeychainStore / 迁移
+│       ├── Streaming/         # MessageState（流式状态 + 增量缓冲）、
+│       │                     #   ChatStreamController（流式编排）
+│       ├── Views/             # SwiftUI 界面（纯展示）
+│       ├── DeepSeekChatApp.swift  # @main 入口
+│       └── AppConfiguration.swift # 应用级常量单一入口
+└── Tests/DeepSeekChatTests/   # 272 个单元测试，镜像 Sources 分层
     ├── App/                   # 窗口 / 面板测试
     ├── Domain/                # 领域模型测试
     ├── Services/              # 网络 / 解析 / 缓存测试

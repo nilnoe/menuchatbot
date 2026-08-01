@@ -53,6 +53,8 @@ jobs:
         run: MODE=debug ./scripts/build-rust-core.sh
       - name: Build
         run: swift build
+      - name: Dependency direction check
+        run: ./scripts/check-deps.sh
       - name: Test
         run: swift test
 

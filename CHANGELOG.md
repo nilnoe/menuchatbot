@@ -4,6 +4,31 @@
 
 ## [Unreleased]
 
+### 功能（Tier 2：Rust 骨架与工具链）
+
+- **Rust 核心静态库落地（T2-1）**：新增 `RustCore` crate（staticlib + 最小
+  C ABI，11 个导出符号，JSON 出入，`panic=abort`，零第三方依赖可离线构建）；
+  手写头文件 `Sources/CRustCore/include/rustcore.h`；SwiftPM 新增
+  `CRustCore` C target 与 `DeepSeekChatIndexing` 库（`IndexService` 协议 +
+  `RustIndexService` + `MockIndexService`，Streaming / Views 只依赖协议，
+  不接触 C 类型）。`scripts/build-rust-core.sh` 统一产出
+  `RustCore/dist/librustcore.a`：release 双架构 lipo + strip + ABI 符号
+  校验；无 cargo 环境自动降级为同 ABI stub 库（`swift test` 全绿、FFI 集成
+  测试 XCTSkip，T2-1d）；`make-app.sh` 开头接入；CI 新增 rust
+  fmt / clippy / test job 与无 Rust 工具链的 test-degraded job。
+- **T0 计算器（T2-2）**：Rust 表达式求值器 `dc_eval_expr`（四则 / 优先级 /
+  括号 / 幂 / 取模 / 一元符号 / 小数与科学计数法），非法表达式返回错误码
+  不 panic、不跨 FFI unwind；Swift 侧 `RustCalculatorService` + 设置页
+  「计算器」开关接入工具注册表。
+- **工具调用循环（T2-3）**：Chat Completions function calling 全链路——
+  流式 `tool_calls` 分片解析拼装（ToolCallAccumulator）→ 本地执行 →
+  结果回填 → 继续生成；轮次上限（默认 3，超过后强制收敛）；每次调用以
+  tool 消息写入会话历史（工具名 / 参数 / 结果摘要，UI 透明展示）；取消后
+  不再执行后续工具；message 表 v5 迁移补工具列（旧库升级保留数据）。
+  Responses 的 function 工具随 v4-pro 开放跟进。
+- **深度思考 v1（T2-4）**：`reasoning_effort=max` 档位（UI 已有 Max，
+  补充 Chat Completions / Responses 请求构造测试）。
+
 ### 重构
 
 - **测试代码模块化**：`Tests/` 目录镜像 `Sources` 分层（App / Domain /

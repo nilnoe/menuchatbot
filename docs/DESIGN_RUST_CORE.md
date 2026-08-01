@@ -5,6 +5,16 @@
 
 ## 1. 全景
 
+> **落地状态（2026-08-01）**：Tier 2 已完成——RustCore crate（staticlib +
+> 11 个导出符号的 C ABI）、`scripts/build-rust-core.sh`（cargo → lipo →
+> ABI 符号校验）、SwiftPM `CRustCore` / `DeepSeekChatIndexing` target、
+> T0 计算器与工具调用循环均已落地并有测试护航（swift test 272 全绿，
+> cargo test 29 全绿）。与本文档的两处偏差：
+> 1. **无 cargo 降级**用「脚本用 cc/ar 产出同 ABI stub 静态库」实现，而非
+>    弱符号覆盖（实测 ld64 不拉取已定义符号的 archive member）；
+> 2. **ABI 校验**优先用 `llvm-nm`（系统 nm 读不了 Rust 1.96 / LLVM 22 的
+>    对象属性），cbindgen --check 可作为后续加固项。
+
 一句话：**Rust 编译成静态库（staticlib），通过极小 C ABI 暴露给 Swift，
 Swift 侧用协议 + 包装类隔离在 Indexing 模块里，UI 与业务层永远看不到 C 类型。**
 
@@ -201,7 +211,7 @@ embedding 是 CPU 密集，单条增量走低优先级后台任务，重建走�
 | 层级 | 内容 | 运行位置 |
 |---|---|---|
 | Rust 单测 / 集成测试 | upsert / search / delete / rebuild、JSON 解析、错误码、取消语义（mock embeddings） | CI lint job |
-| Swift 单测（现有 191 个） | 全部用 `MockIndexService`，与 Rust 无关 | `swift test`，无 cargo 也可跑 |
+| Swift 单测（现有 272 个） | 全部用 `MockIndexService`，与 Rust 无关 | `swift test`，无 cargo 也可跑（stub 库 + FFI XCTSkip） |
 | FFI 集成测试 | 真调 `librustcore.a`：打开 / 写入 / 搜索 / 关闭、错误映射、内存释放成对 | 产物存在才跑，否则 `XCTSkip` |
 | 性能基线 | XCTMeasure：搜索吞吐、批量 embedding、重建 10 万条耗时 | test job |
 

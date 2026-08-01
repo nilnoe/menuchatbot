@@ -6,16 +6,18 @@
 > 已拆分至 [TODO_HISTORY.md](TODO_HISTORY.md)，**降级为低优先级归档**，
 > 以本文档为准。全部文档索引见 [docs/README.md](docs/README.md)。
 
-> **当前状态（2026-08-01）**：测试 191 全绿；分层架构重构与测试模块化
-> Phase A 已完成（细节见 TODO_HISTORY.md / CHANGELOG.md）；Rust 核心与
-> AI 能力规划定稿（见第二节），纯文档规划，未动代码。
+> **当前状态（2026-08-01）**：测试 272 全绿；分层架构重构与测试模块化
+> Phase A 已完成（细节见 TODO_HISTORY.md / CHANGELOG.md）；Tier 2
+> 「Rust 骨架与工具链」全部落地（RustCore staticlib + C ABI、构建链与
+> 无 cargo 降级、IndexService 协议 + Rust/Mock 实现、T0 计算器、
+> 工具调用循环、effort=max），细节见 CHANGELOG.md。
 >
 > **历史进展存档**：0.2.x 性能里程碑、0.3 功能与 UI 收尾等逐项细节见
 > [CHANGELOG.md](CHANGELOG.md) 与 [TODO_HISTORY.md](TODO_HISTORY.md)。
 >
-> **下一步方向**：按第二节 Tier 1 推进——先数据地基、再接口地基；
-> 键盘快捷键 / 全局热键 / 1.0 发布项等原 backlog 已降级至
-> TODO_HISTORY.md，按需再捞起。
+> **下一步方向**：按第二节 Tier 3 推进资料库 RAG（embedding 本地模型 +
+> 检索注入 + 命名资料库 UI）；键盘快捷键 / 全局热键 / 1.0 发布项等原
+> backlog 已降级至 TODO_HISTORY.md，按需再捞起。
 
 ---
 
@@ -75,16 +77,17 @@
 
 ### Tier 2｜Rust 骨架与工具链（中低难度，打通即闭环）
 
-- [ ] RustCore crate 骨架：staticlib + 最小 C ABI（JSON 出入）+ 手写头文件
-- [ ] scripts/build-rust-core.sh（cargo → lipo → strip）+ make-app.sh 接入
-  + CI（fmt / clippy / test / 体积门禁）
-- [ ] SwiftPM：CRustCore target + IndexService 协议 + RustIndexService
+- [x] RustCore crate 骨架：staticlib + 最小 C ABI（JSON 出入）+ 手写头文件
+- [x] scripts/build-rust-core.sh（cargo → lipo → strip + ABI 符号校验；
+  无 cargo 时 cc/ar 降级 stub 库）+ make-app.sh 接入 + CI（rust
+  fmt / clippy / test job、test-degraded job、release 双 target）
+- [x] SwiftPM：CRustCore target + IndexService 协议 + RustIndexService
   + MockIndexService
-- [ ] T0 计算器：Rust 表达式求值器（dc_eval_expr），无子进程
-- [ ] 工具调用循环：function calling 往返 + 轮次上限 + 透明展示
+- [x] T0 计算器：Rust 表达式求值器（dc_eval_expr），无子进程
+- [x] 工具调用循环：function calling 往返 + 轮次上限 + 透明展示
   （依赖 ContextBuilder；先用 Chat Completions 验证，Responses 的 function
   工具随 v4-pro 开放跟进）
-- [ ] 深度思考 v1：reasoning_effort=max 档位 UI（纯 API 参数过渡方案）
+- [x] 深度思考 v1：reasoning_effort=max 档位 UI（纯 API 参数过渡方案）
 
 **验收**：见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) §5。
 

@@ -59,7 +59,11 @@
 
 ### 3.1 目录分层（2026-07 重构后）
 
-源码按职责分层组织（SwiftPM 单 target，目录是组织手段），依赖方向单向：
+源码按职责分层组织，依赖方向单向。SwiftPM target 以「边界即模块」为原则：
+应用主体仍是单 target（目录是组织手段），Rust 边界单独拆出
+`CRustCore`（C ABI 头）与 `DeepSeekChatIndexing`（IndexService /
+CalculatorService 协议 + 实现）两个库——Streaming / Views 只依赖协议，
+不 import CRustCore（T2-1e）：
 
 ```
 Views → Streaming → Services / Persistence → Domain
