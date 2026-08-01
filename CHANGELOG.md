@@ -47,6 +47,14 @@
 
 ### 文档与规划
 
+- **审计模块方案定稿（纯文档，未实现）**：新增
+  [ADR-0009](docs/decisions/0009-audit-module.md)（威胁模型、7 审计域、
+  事件目录 70 种、独立 `audit.sqlite` 追加式存储、字段级脱敏、90 天 /
+  50MB 保留策略、FFI 计数器 + panic hook + `dc_audit_snapshot`、
+  cargo audit / fuzz / ASan CI 门禁）与
+  [ACCEPTANCE §11](docs/ACCEPTANCE.md) 量化验收（AU-1~AU-21，每条
+  先红后绿）；TODO 新增「Tier A｜审计模块」登记 P1~P4 实施步骤。
+  代码实现待方案验收通过后启动。
 - **Rust 核心与 AI 能力规划定稿（纯文档，无代码改动）**：确定 Rust 核心
   集成方案 A（静态库 + C ABI + Swift 协议隔离）、本地资料库 RAG（命名
   资料库 + 授权 + 引用复用）、MCP 兼容本地工具宿主（分级工具 + 只读 +

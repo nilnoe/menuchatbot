@@ -10,7 +10,8 @@
 > Phase A 已完成（细节见 TODO_HISTORY.md / CHANGELOG.md）；Tier 2
 > 「Rust 骨架与工具链」全部落地（RustCore staticlib + C ABI、构建链与
 > 无 cargo 降级、IndexService 协议 + Rust/Mock 实现、T0 计算器、
-> 工具调用循环、effort=max），细节见 CHANGELOG.md。
+> 工具调用循环、effort=max），细节见 CHANGELOG.md；审计模块方案已定稿
+> （ADR-0009 + ACCEPTANCE §11，待实现，见 Tier A）。
 >
 > **历史进展存档**：0.2.x 性能里程碑、0.3 功能与 UI 收尾等逐项细节见
 > [CHANGELOG.md](CHANGELOG.md) 与 [TODO_HISTORY.md](TODO_HISTORY.md)。
@@ -125,6 +126,24 @@
   HNSW 升级、深度模式锁定 pro
 
 **验收**：见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) §8。
+
+### Tier A｜审计模块（贯穿 Tier 3~5，方案已定稿）
+
+- [x] 方案定稿：ADR-0009（威胁模型 + 7 审计域 + 事件目录 70 种）+
+  ACCEPTANCE §11 量化验收（AU-1~AU-21），2026-08-01（**未实现**）
+- [ ] P1 地基：AuditEvent / AuditDomain / AuditLogging / AuditStore
+  （独立 audit.sqlite，追加式）/ AuditRedactor / Sinks / Reporter +
+  设置页审计查看器
+- [ ] P1 接入：A 配置（SettingsStore 安全相关 didSet）、B 权限
+  （PathScope / bookmark / 注册表自检 / 轮次上限）、C 工具（executeTool）、
+  D 存储（迁移 / 降级 / 导入导出 / 索引）四域现成挂点
+- [ ] P2 FFI：Rust 计数器 + panic hook + `dc_audit_snapshot` + 泄漏断言；
+  cargo audit / fuzz / ASan 进 CI
+- [ ] P3：read_file / 沙箱门禁审计（随 Tier 4）；哈希链加固（可选）
+- [ ] P4：网络 / 长时推演域事件（随 Tier 5）；保留策略自动执行；导出完善
+- [ ] scale 阈值上调（随 P1 代码落地按 ACCEPTANCE §9 校准并记录）
+
+**验收**：见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) §11（AU-1~AU-21）。
 
 ---
 

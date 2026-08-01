@@ -13,3 +13,4 @@
 | [0006](0006-mcp-tool-host.md) | MCP 兼容本地工具宿主 | 已接受（2026-08-01，方向定稿） | TODO「Rust 核心与 AI 能力规划」 |
 | [0007](0007-extended-deliberation.md) | 长时推演模式 | 已接受（2026-08-01，方向定稿） | TODO「Rust 核心与 AI 能力规划」 |
 | [0008](0008-refactor-assessment.md) | 重构评估与执行顺序（数据瓶颈 + 接口边界） | 已接受（2026-08-01） | TODO Tier 1 |
+| [0009](0009-audit-module.md) | 审计模块（运行时记录 + 验证纪律 + 报告） | 已接受（2026-08-01，方案定稿，待实现） | [ACCEPTANCE §11](../ACCEPTANCE.md) / TODO Tier A |
