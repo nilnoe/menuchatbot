@@ -7,6 +7,9 @@ struct MessageView: View {
     var modelLabel: String? = nil
     /// 当前模型信息（含官方单价）；nil 时用量行不显示费用估算。
     var modelInfo: ModelInfo? = nil
+    /// 当前对话内容列宽度（由 ChatView 按主区宽度 × 比例传入）；
+    /// 未传入时回退到参考列宽（约 0.2.x 的 780pt 固定设计）。
+    var columnWidth: CGFloat = DesignTokens.referenceColumnWidth
     /// 错误消息上的重试动作（仅在错误消息是会话末尾时由 ChatView 注入）。
     var onRetry: (() -> Void)? = nil
 
@@ -83,8 +86,8 @@ struct MessageView: View {
         // 长文本在限宽内换行。详见 DesignTokens 的注释。
         .frame(
             maxWidth: state.role == .user
-                ? DesignTokens.userBubbleMaxWidth
-                : DesignTokens.assistantBubbleMaxWidth,
+                ? columnWidth * DesignTokens.userBubbleColumnRatio
+                : columnWidth * DesignTokens.assistantBubbleColumnRatio,
             alignment: state.role == .user ? .trailing : .leading
         )
         .opacity(appeared ? 1 : 0)

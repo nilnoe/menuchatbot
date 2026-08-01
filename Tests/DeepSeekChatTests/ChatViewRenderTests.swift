@@ -99,10 +99,12 @@ final class ChatViewRenderTests: XCTestCase {
             return 0
         }
         hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        let scale = Int(round(Double(rep.pixelsWide) / max(hosting.bounds.width, 1)))
         var dark = 0
         var total = 0
-        for y in stride(from: 50, to: 430, by: 2) {
-            for x in stride(from: 20, to: 620, by: 2) {
+        // colorAt 使用像素坐标，需按位图缩放换算（retina 下为 2x）。
+        for y in stride(from: 50 * scale, to: 430 * scale, by: 2 * scale) {
+            for x in stride(from: 20 * scale, to: 620 * scale, by: 2 * scale) {
                 guard let c = rep.colorAt(x: x, y: y) else { continue }
                 total += 1
                 let lum =
@@ -120,19 +122,20 @@ final class ChatViewRenderTests: XCTestCase {
             return (0, 0)
         }
         hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        let scale = Int(round(Double(rep.pixelsWide) / max(hosting.bounds.width, 1)))
         var topDark = 0
         var bottomDark = 0
         var topTotal = 0
         var bottomTotal = 0
-        for y in stride(from: 60, to: 400, by: 2) {
-            for x in stride(from: 20, to: 620, by: 2) {
+        for y in stride(from: 60 * scale, to: 400 * scale, by: 2 * scale) {
+            for x in stride(from: 20 * scale, to: 620 * scale, by: 2 * scale) {
                 guard let c = rep.colorAt(x: x, y: y) else { continue }
                 let lum =
                     0.299 * c.redComponent + 0.587 * c.greenComponent + 0.114 * c.blueComponent
                 if lum < 0.88 {
-                    if y < 230 { topDark += 1 } else { bottomDark += 1 }
+                    if y < 230 * scale { topDark += 1 } else { bottomDark += 1 }
                 }
-                if y < 230 { topTotal += 1 } else { bottomTotal += 1 }
+                if y < 230 * scale { topTotal += 1 } else { bottomTotal += 1 }
             }
         }
         return (
@@ -312,5 +315,72 @@ final class ChatViewRenderTests: XCTestCase {
         let (top, bottom) = messageAreaInkByHalf()
         print("SHORT-INK top=\(top) bottom=\(bottom)")
         XCTAssertGreaterThan(top, bottom, "短会话应顶置：首条气泡应在消息区上半部分")
+    }
+
+    /// 空状态（无消息）在消息区视口内垂直居中：
+    /// 用加高窗口放大「固定 80pt 下移」与「视口居中」的差异，断言墨水带中心
+    /// 落在消息区中段（旧实现会落在上段）。
+    func testEmptyStateVerticallyCentered() throws {
+        selectedBox.id = store.createSession(title: "空会话").id
+        // 与 host() 相同的装配，仅窗口加高（消息区约 y 57...725，中点约 391）。
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 800),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        hosting = NSHostingView(
+            rootView: AnyView(
+                makeChatView()
+                    .environmentObject(store)
+                    .environmentObject(settings)
+                    .environmentObject(controller)
+                    .background(Color.white)
+            )
+        )
+        hosting.frame = NSRect(x: 0, y: 0, width: 640, height: 800)
+        window.contentView = hosting
+        window.appearance = NSAppearance(named: .aqua)
+        hosting.appearance = NSAppearance(named: .aqua)
+        self.window = window
+        settle()
+        try snapshot(named: "empty-centered")
+
+        // 扫描消息区墨水带的垂直范围（colorAt 为像素坐标，按缩放换算）。
+        guard let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
+            XCTFail("无法生成位图")
+            return
+        }
+        hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        let scale = Int(round(Double(rep.pixelsWide) / max(hosting.bounds.width, 1)))
+        var minY: Int = Int.max
+        var maxY: Int = -1
+        for y in stride(from: 60 * scale, to: 725 * scale, by: scale) {
+            var rowDark = false
+            for x in stride(from: 20 * scale, to: 620 * scale, by: 2 * scale) {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                let lum =
+                    0.299 * c.redComponent + 0.587 * c.greenComponent + 0.114 * c.blueComponent
+                if lum < 0.88 {
+                    rowDark = true
+                    break
+                }
+            }
+            if rowDark {
+                minY = min(minY, y)
+                maxY = max(maxY, y)
+            }
+        }
+        XCTAssertNotEqual(minY, Int.max, "消息区应有空状态墨水")
+        let center = (CGFloat(minY) + CGFloat(maxY)) / 2 / CGFloat(scale)
+        print("EMPTY-CENTER minY=\(minY) maxY=\(maxY) center=\(center)")
+        // 消息区约 57...725，中点 391；居中时墨水带中心应在中段。
+        XCTAssertGreaterThan(center, 320, "空状态应居中（墨水带中心在中段）")
+        XCTAssertLessThan(center, 470, "空状态应居中（墨水带中心在中段）")
+        XCTAssertLessThan(
+            (CGFloat(maxY) - CGFloat(minY)) / CGFloat(scale),
+            400,
+            "墨水带高度应接近空状态内容高度（而非整窗）"
+        )
     }
 }

@@ -77,6 +77,15 @@ final class SettingsStore: ObservableObject {
             }
         }
     }
+    /// 窗口大小档位（占可见区域比例）。默认「铺满 93%」，与 0.2.x 默认一致。
+    @Published var windowSizePreset: WindowSizePreset {
+        didSet {
+            defaults.set(
+                windowSizePreset.rawValue,
+                forKey: AppConfiguration.SettingsKey.windowSizePreset
+            )
+        }
+    }
 
     private let defaults: UserDefaults
     private let keychain: KeychainStoring
@@ -119,6 +128,12 @@ final class SettingsStore: ObservableObject {
         } else {
             customModels = []
         }
+        windowSizePreset =
+            WindowSizePreset(
+                rawValue: defaults.string(forKey: AppConfiguration.SettingsKey.windowSizePreset)
+                    ?? ""
+            )
+            ?? .large
         // 历史数据可能选中了已不存在的自定义模型，初始化后兜底一次。
         if !availableModels.contains(where: { $0.id == model }) {
             model = "deepseek-v4-flash"
@@ -145,6 +160,14 @@ final class SettingsStore: ObservableObject {
     /// 按 ID 解析模型信息（含自定义模型）。
     func modelInfo(for id: String) -> ModelInfo {
         ModelCatalog.info(id, custom: customProviderEnabled ? customModels : [])
+    }
+
+    /// 用户是否在设置页明确选择过窗口大小档位。
+    ///
+    /// 只有显式选择后，「每次启动按档位生效」才覆盖 autosave 记忆的旧 frame；
+    /// 从未设置过的用户保持 0.2.x 的窗口记忆行为，避免无声改变既有窗口。
+    var hasChosenWindowSize: Bool {
+        defaults.object(forKey: AppConfiguration.SettingsKey.windowSizePreset) != nil
     }
 
     private func persistKey(value: String) {
