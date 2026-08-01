@@ -82,7 +82,7 @@ open "dist/DeepSeek Chat.app"
 
 ```bash
 swift build       # 编译开发版（.build/debug/DeepSeekChat）
-swift test        # 运行 185 个单元测试（含性能基线）
+swift test        # 运行 191 个单元测试（含性能基线）
 .build/debug/DeepSeekChat   # 启动开发版
 ```
 
@@ -105,13 +105,22 @@ menuchatbot/
 │   ├── Views/                 # SwiftUI 界面（纯展示）
 │   ├── DeepSeekChatApp.swift  # @main 入口
 │   └── AppConfiguration.swift # 应用级常量单一入口
-└── Tests/DeepSeekChatTests/   # 191 个单元测试
+└── Tests/DeepSeekChatTests/   # 191 个单元测试，镜像 Sources 分层
+    ├── App/                   # 窗口 / 面板测试
+    ├── Domain/                # 领域模型测试
+    ├── Services/              # 网络 / 解析 / 缓存测试
+    ├── Persistence/           # 存储 / 迁移 / 设置测试
+    ├── Streaming/             # 流式编排测试
+    ├── Views/                 # 渲染 / 布局冒烟测试
+    ├── Performance/           # 性能基线
+    └── Support/               # 共享 mock 与测试脚手架
 ```
 
 分层规则（Views → Streaming → Services / Persistence → Domain）与
 接口隔离约定见 [PROJECT_SPEC.md](PROJECT_SPEC.md) §3.1；重构过程与
 决策记录见 [docs/REFACTORING.md](docs/REFACTORING.md) 与
-[docs/decisions](docs/decisions/)；macOS SwiftUI 交互踩坑记录见
+[docs/decisions](docs/decisions/)；测试策略与测试支持 API 手册见
+[docs/TESTING.md](docs/TESTING.md)；macOS SwiftUI 交互踩坑记录见
 [docs/PITFALLS.md](docs/PITFALLS.md)。
 
 ## 数据与安全

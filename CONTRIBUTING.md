@@ -19,6 +19,10 @@ swift format lint --recursive Sources Tests   # 代码规范检查
 ./scripts/make-app.sh                          # 打包 .app
 ```
 
+测试代码按层组织（镜像 `Sources/`），目录约定、命名规范与共享 mock /
+测试脚手架的「接口手册」见 [docs/TESTING.md](docs/TESTING.md)；按类只跑部分
+测试可用 `swift test --filter 类名`。
+
 ## 提 PR 前的检查清单
 
 - [ ] `swift build` 无警告

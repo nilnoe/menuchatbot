@@ -2,6 +2,18 @@
 
 本项目遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 风格记录各版本变化。
 
+## [Unreleased]
+
+### 重构
+
+- **测试代码模块化**：`Tests/` 目录镜像 `Sources` 分层（App / Domain /
+  Services / Persistence / Streaming / Views / Performance / Support）；
+  大测试文件按行为面拆分（`SessionStoreTests` 739 行 → 5 个、
+  `DeepSeekClientTests` → 3 个、`SSEParserTests` → 4 个、
+  `SettingsStoreTests` → 2 个）；共享测试支持收敛为 `Support/` 接口层
+  （Harness + Mock + 工厂），新增 [docs/TESTING.md](docs/TESTING.md)
+  测试策略与支持 API 手册。191 个测试全部通过，行为不变。
+
 ## [0.3.0] - 2026-08-01
 
 ### 新增

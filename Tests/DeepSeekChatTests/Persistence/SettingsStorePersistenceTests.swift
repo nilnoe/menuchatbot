@@ -2,36 +2,22 @@ import XCTest
 
 @testable import DeepSeekChat
 
-final class SettingsStoreTests: XCTestCase {
-    private var suiteName: String!
-    private var defaults: UserDefaults!
-    private var mockKeychain: MockKeychain!
+/// 设置持久化：往返、默认值、自定义供应商、兼容旧键名。
+final class SettingsStorePersistenceTests: XCTestCase {
+    private var harness: SettingsStoreHarness!
 
     override func setUpWithError() throws {
-        suiteName = "SettingsStoreTests-\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
-        mockKeychain = MockKeychain()
+        harness = SettingsStoreHarness()
     }
 
     override func tearDownWithError() throws {
-        defaults.removePersistentDomain(forName: suiteName)
-    }
-
-    private func makeStore(
-        keychain: KeychainStoring? = nil,
-        saveDelay: Duration = .zero
-    ) -> SettingsStore {
-        SettingsStore(
-            defaults: defaults,
-            keychain: keychain ?? mockKeychain,
-            keychainSaveDelay: saveDelay
-        )
+        harness.cleanup()
     }
 
     // MARK: - 设置持久化
 
     func testSettingsRoundTrip() {
-        let store = makeStore()
+        let store = harness.makeStore()
         store.model = "deepseek-v4-pro"
         store.thinking = false
         store.effort = .max
@@ -39,7 +25,7 @@ final class SettingsStoreTests: XCTestCase {
         store.systemPrompt = "你是一位资深 Swift 工程师"
         store.temperature = 0.7
 
-        let reloaded = makeStore()
+        let reloaded = harness.makeStore()
         XCTAssertEqual(reloaded.model, "deepseek-v4-pro")
         XCTAssertFalse(reloaded.thinking)
         XCTAssertEqual(reloaded.effort, .max)
@@ -49,7 +35,7 @@ final class SettingsStoreTests: XCTestCase {
     }
 
     func testCustomProviderSettingsRoundTrip() {
-        let store = makeStore()
+        let store = harness.makeStore()
         store.customProviderEnabled = true
         store.customBaseURL = "https://api.example.com/v1"
         store.customModels = [
@@ -57,7 +43,7 @@ final class SettingsStoreTests: XCTestCase {
             CustomModel(id: "claude-sonnet", name: "Claude Sonnet"),
         ]
 
-        let reloaded = makeStore()
+        let reloaded = harness.makeStore()
         XCTAssertTrue(reloaded.customProviderEnabled)
         XCTAssertEqual(reloaded.customBaseURL, "https://api.example.com/v1")
         XCTAssertEqual(
@@ -70,32 +56,32 @@ final class SettingsStoreTests: XCTestCase {
     }
 
     func testWindowSizePresetRoundTrip() {
-        let store = makeStore()
+        let store = harness.makeStore()
         XCTAssertEqual(store.windowSizePreset, .large, "默认档位与 0.2.x 的 93% 铺满一致")
         XCTAssertFalse(store.hasChosenWindowSize, "未设置过时保持旧窗口记忆行为")
 
         store.windowSizePreset = .compact
         XCTAssertTrue(store.hasChosenWindowSize)
 
-        let reloaded = makeStore()
+        let reloaded = harness.makeStore()
         XCTAssertEqual(reloaded.windowSizePreset, .compact)
         XCTAssertTrue(reloaded.hasChosenWindowSize)
     }
 
     func testInvalidWindowSizePresetFallsBackToLarge() {
-        defaults.set("bogus", forKey: "windowSizePreset")
-        XCTAssertEqual(makeStore().windowSizePreset, .large)
+        harness.defaults.set("bogus", forKey: "windowSizePreset")
+        XCTAssertEqual(harness.makeStore().windowSizePreset, .large)
     }
 
     func testCustomProviderDefaultsWhenNothingSaved() {
-        let store = makeStore()
+        let store = harness.makeStore()
         XCTAssertFalse(store.customProviderEnabled)
         XCTAssertEqual(store.customBaseURL, "")
         XCTAssertTrue(store.customModels.isEmpty)
     }
 
     func testActiveBaseURLFallsBackToOfficial() {
-        let store = makeStore()
+        let store = harness.makeStore()
         XCTAssertEqual(store.activeBaseURL, AppConfiguration.defaultAPIBaseURL)
 
         // 启用但地址为空：仍回退官方地址
@@ -112,7 +98,7 @@ final class SettingsStoreTests: XCTestCase {
     }
 
     func testAvailableModelsMergeCustomWhenEnabled() {
-        let store = makeStore()
+        let store = harness.makeStore()
         store.customModels = [CustomModel(id: "gpt-4o", name: "GPT-4o")]
 
         // 未启用：只暴露内置模型
@@ -129,7 +115,7 @@ final class SettingsStoreTests: XCTestCase {
     }
 
     func testDisablingProviderResetsCustomModelSelection() {
-        let store = makeStore()
+        let store = harness.makeStore()
         store.customProviderEnabled = true
         store.customModels = [CustomModel(id: "gpt-4o", name: "GPT-4o")]
         store.model = "gpt-4o"
@@ -139,7 +125,7 @@ final class SettingsStoreTests: XCTestCase {
     }
 
     func testDeletingSelectedCustomModelResetsSelection() {
-        let store = makeStore()
+        let store = harness.makeStore()
         store.customProviderEnabled = true
         store.customModels = [CustomModel(id: "gpt-4o", name: "GPT-4o")]
         store.model = "gpt-4o"
@@ -149,19 +135,19 @@ final class SettingsStoreTests: XCTestCase {
     }
 
     func testReloadKeepsBuiltinSelectionWhenProviderOff() {
-        let store = makeStore()
+        let store = harness.makeStore()
         store.model = "deepseek-v4-pro"
         store.customProviderEnabled = true
         store.customModels = [CustomModel(id: "gpt-4o", name: "GPT-4o")]
         store.model = "gpt-4o"
         store.customProviderEnabled = false
 
-        let reloaded = makeStore()
+        let reloaded = harness.makeStore()
         XCTAssertEqual(reloaded.model, "deepseek-v4-flash", "关闭后持久化的自定义选择不应复活")
     }
 
     func testDefaultsWhenNothingSaved() {
-        let store = makeStore()
+        let store = harness.makeStore()
         XCTAssertEqual(store.model, "deepseek-v4-flash")
         XCTAssertTrue(store.thinking)
         XCTAssertEqual(store.effort, .high)
@@ -174,78 +160,26 @@ final class SettingsStoreTests: XCTestCase {
     }
 
     func testClearingTemperatureReturnsToModelDefault() {
-        let store = makeStore()
+        let store = harness.makeStore()
         store.temperature = 1.5
         XCTAssertEqual(store.temperature, 1.5)
         store.temperature = nil
         XCTAssertNil(store.temperature)
 
-        let reloaded = makeStore()
+        let reloaded = harness.makeStore()
         XCTAssertNil(reloaded.temperature)
     }
 
     func testLegacyModelNamesMigrated() {
-        defaults.set("deepseek-chat", forKey: "model")
-        XCTAssertEqual(makeStore().model, "deepseek-v4-flash")
+        harness.defaults.set("deepseek-chat", forKey: "model")
+        XCTAssertEqual(harness.makeStore().model, "deepseek-v4-flash")
 
-        defaults.set("deepseek-reasoner", forKey: "model")
-        XCTAssertEqual(makeStore().model, "deepseek-v4-flash")
+        harness.defaults.set("deepseek-reasoner", forKey: "model")
+        XCTAssertEqual(harness.makeStore().model, "deepseek-v4-flash")
     }
 
     func testInvalidEffortFallsBackToHigh() {
-        defaults.set("bogus", forKey: "effort")
-        XCTAssertEqual(makeStore().effort, .high)
-    }
-
-    // MARK: - API Key
-
-    func testAPIKeyWritesToKeychainSynchronously() {
-        let store = makeStore(saveDelay: .zero)
-        store.apiKey = "sk-test-123"
-        XCTAssertEqual(mockKeychain.storage["apiKey"], "sk-test-123")
-        XCTAssertEqual(mockKeychain.writeCount, 1)
-        XCTAssertTrue(store.keyConfigured)
-    }
-
-    func testEmptyAPIKeyDeletesFromKeychain() {
-        mockKeychain.storage["apiKey"] = "sk-old"
-        let store = makeStore(saveDelay: .zero)
-        XCTAssertEqual(store.apiKey, "sk-old")
-        store.apiKey = ""
-        XCTAssertNil(mockKeychain.storage["apiKey"])
-        XCTAssertEqual(mockKeychain.deleteCount, 1)
-        XCTAssertFalse(store.keyConfigured)
-    }
-
-    func testKeychainValueLoadedAtInit() {
-        mockKeychain.storage["apiKey"] = "sk-from-keychain"
-        let store = makeStore()
-        XCTAssertEqual(store.apiKey, "sk-from-keychain")
-        XCTAssertTrue(store.keyConfigured)
-    }
-
-    func testWhitespaceOnlyKeyNotConfigured() {
-        let store = makeStore(saveDelay: .zero)
-        store.apiKey = "   "
-        XCTAssertFalse(store.keyConfigured)
-    }
-
-    func testDefaultDelayDefersKeychainWrite() {
-        let store = makeStore(saveDelay: .milliseconds(600))
-        store.apiKey = "sk-deferred"
-        // 防抖生效：写入尚未发生
-        XCTAssertNil(mockKeychain.storage["apiKey"])
-        XCTAssertEqual(mockKeychain.writeCount, 0)
-    }
-
-    func testRapidKeyChangesOnlyPersistLastValue() async throws {
-        let store = makeStore(saveDelay: .milliseconds(200))
-        store.apiKey = "sk-1"
-        store.apiKey = "sk-2"
-        store.apiKey = "sk-3"
-
-        try await Task.sleep(for: .milliseconds(600))
-        XCTAssertEqual(mockKeychain.storage["apiKey"], "sk-3")
-        XCTAssertEqual(mockKeychain.writeCount, 1)
+        harness.defaults.set("bogus", forKey: "effort")
+        XCTAssertEqual(harness.makeStore().effort, .high)
     }
 }

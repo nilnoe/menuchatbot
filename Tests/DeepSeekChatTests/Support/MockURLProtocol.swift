@@ -1,53 +1,9 @@
 import Foundation
-import XCTest
 
-@testable import DeepSeekChat
-
-/// 记录流式回调调用
-final class CallbackRecorder {
-    var deltas: [String] = []
-    var reasoning: [String] = []
-    var searchingCount = 0
-    var sources: [[Source]] = []
-    var usages: [TokenUsage] = []
-    var doneCount = 0
-    var errors: [String] = []
-
-    var callbacks: StreamCallbacks {
-        StreamCallbacks(
-            onDelta: { [self] in deltas.append($0) },
-            onReasoning: { [self] in reasoning.append($0) },
-            onSearching: { [self] in searchingCount += 1 },
-            onSources: { [self] in sources.append($0) },
-            onUsage: { [self] in usages.append($0) },
-            onDone: { [self] in doneCount += 1 },
-            onError: { [self] in errors.append($0) }
-        )
-    }
-}
-
-/// 内存版 Keychain
-final class MockKeychain: KeychainStoring {
-    var storage: [String: String] = [:]
-    var writeCount = 0
-    var deleteCount = 0
-
-    func read(account: String) -> String? {
-        storage[account]
-    }
-
-    func write(account: String, value: String) {
-        storage[account] = value
-        writeCount += 1
-    }
-
-    func delete(account: String) {
-        storage.removeValue(forKey: account)
-        deleteCount += 1
-    }
-}
-
-/// 拦截 URLSession 请求，返回预设的响应
+/// 拦截 URLSession 请求，返回预设的响应。
+///
+/// 使用方式：给 `handler` 赋闭包，闭包内用 `httpResponse(_:status:)` 构造响应；
+/// 再通过 `makeMockURLSession()` 创建注入客户端的会话。
 final class MockURLProtocol: URLProtocol {
     static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
 
@@ -124,50 +80,5 @@ final class DelayedStreamingURLProtocol: URLProtocol {
         guard !finished else { return }
         pendingWork.forEach { $0.cancel() }
         client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
-    }
-}
-
-extension XCTestCase {
-    func makeDelayedStreamingURLSession() -> URLSession {
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [DelayedStreamingURLProtocol.self]
-        return URLSession(configuration: config)
-    }
-
-    func makeMockURLSession() -> URLSession {
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [MockURLProtocol.self]
-        return URLSession(configuration: config)
-    }
-
-    func httpResponse(_ request: URLRequest, status: Int) -> HTTPURLResponse {
-        HTTPURLResponse(
-            url: request.url!,
-            statusCode: status,
-            httpVersion: nil,
-            headerFields: nil
-        )!
-    }
-
-    /// URLSession 可能把 httpBody 转成 httpBodyStream，这里两种都支持
-    func httpBody(of request: URLRequest) throws -> Data {
-        if let body = request.httpBody {
-            return body
-        }
-        guard let stream = request.httpBodyStream else {
-            throw URLError(.cannotParseResponse)
-        }
-        stream.open()
-        defer { stream.close() }
-        var data = Data()
-        let bufferSize = 4096
-        let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
-        defer { buffer.deallocate() }
-        while stream.hasBytesAvailable {
-            let count = stream.read(buffer, maxLength: bufferSize)
-            if count <= 0 { break }
-            data.append(buffer, count: count)
-        }
-        return data
     }
 }
